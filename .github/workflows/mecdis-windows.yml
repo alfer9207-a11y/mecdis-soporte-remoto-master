@@ -50,13 +50,34 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@v1
         with:
-          toolchain: ${{ env.SCITER_RUST_VERSION }}
+          toolchain: ${{ env.SCITER_RUST_VERSION }}-x86_64-pc-windows-msvc
+          components: "rustfmt"
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgDirectory: C:\vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+
+      - name: Install vcpkg dependencies
+        shell: bash
+        env:
+          VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
+        run: |
+          if ! $VCPKG_ROOT/vcpkg install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"; then
+            find "${VCPKG_ROOT}/" -name "*.log" | while read -r _1; do
+              echo "$_1:"
+              echo "======"
+              cat "$_1" || true
+              echo "======"
+            done
+            exit 1
+          fi
+
+      - name: Ensure rustfmt (Windows)
+        shell: pwsh
+        run: |
+          rustup component add rustfmt --toolchain "${{ env.SCITER_RUST_VERSION }}-x86_64-pc-windows-msvc" 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host "rustfmt already present or toolchain mismatch" }
 
       - name: Build Windows + MSI
         shell: pwsh

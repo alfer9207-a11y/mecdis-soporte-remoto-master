@@ -133,17 +133,19 @@ jobs:
           targets: ${{ matrix.job.target }}
           components: "rustfmt"
 
+      - name: Ensure rustfmt (Windows)
+        shell: pwsh
+        run: |
+          rustup component add rustfmt --toolchain "${{ env.SCITER_RUST_VERSION }}-x86_64-pc-windows-msvc" 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host "rustfmt already present or toolchain mismatch" }
+          rustup component add rustfmt --toolchain "${{ env.SCITER_RUST_VERSION }}.0-x86_64-pc-windows-msvc" 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host "rustfmt already present or toolchain mismatch" }
+          rustup component add rustfmt 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host "rustfmt already present" }
+
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: ${{ matrix.job.os }}
 
       - name: Setup vcpkg with Github Actions binary cache
         uses: lukka/run-vcpkg@v11
-      - name: Install FFmpeg (vcpkg)
-        shell: pwsh
-        run: |
-          C:\vcpkg\vcpkg.exe install ffmpeg[avcodec,avutil,swscale]:x64-windows-static
-
         with:
           vcpkgDirectory: C:\vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
