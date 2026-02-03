@@ -93,6 +93,30 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      - name: Force update submodules
+        shell: bash
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive --force
+
+      - name: Debug submodules
+        shell: bash
+        run: |
+          echo "=== SUBMODULE STATUS ==="
+          git submodule status
+
+          echo "=== LIST libs ==="
+          ls -la libs || true
+
+          echo "=== LIST libs/hbb_common ==="
+          ls -la libs/hbb_common || true
+
+          echo "=== LIST libs/scrap ==="
+          ls -la libs/scrap || true
+
+          test -f libs/hbb_common/Cargo.toml && echo "OK hbb_common" || (echo "MISSING hbb_common" && exit 1)
+          test -f libs/scrap/Cargo.toml && echo "OK scrap" || (echo "MISSING scrap" && exit 1)
+
       - name: Restore bridge files
         uses: actions/download-artifact@master
         with:
