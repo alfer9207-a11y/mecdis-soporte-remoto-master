@@ -124,7 +124,11 @@ impl Drop for SimpleCallOnReturn {
 pub fn global_init() -> bool {
     // Mec-Dis branding override (so default from submodules is never shown)
     *hbb_common::config::APP_NAME.write().unwrap() = "MecDis Soporte Remoto".to_string();
-    *hbb_common::config::ORG.write().unwrap() = "mecdis-soporte-remoto".to_string();
+    // ORG exists only on macOS in hbb_common::config
+    #[cfg(target_os = "macos")]
+    {
+        *hbb_common::config::ORG.write().unwrap() = "mecdis-soporte-remoto".to_string();
+    }
 
     #[cfg(target_os = "linux")]
     {
