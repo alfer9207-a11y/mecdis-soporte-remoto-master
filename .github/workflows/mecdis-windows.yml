@@ -79,6 +79,26 @@ jobs:
         run: |
           rustup component add rustfmt --toolchain "${{ env.SCITER_RUST_VERSION }}-x86_64-pc-windows-msvc" 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host "rustfmt already present or toolchain mismatch" }
 
+
+      - name: Install FRB codegen (Windows)
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.82.0-x86_64-pc-windows-msvc
+          cargo +1.82.0-x86_64-pc-windows-msvc install flutter_rust_bridge_codegen --version 1.80.1 --locked
+          echo "$env:USERPROFILE\.cargo\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Generate FRB bridge (fast)
+        shell: pwsh
+        run: |
+          if (!(Test-Path ".\src\bridge_generated.rs")) {
+            flutter_rust_bridge_codegen --rust-input .\src\flutter_ffi.rs --rust-output .\src\bridge_generated.rs --dart-output .\flutter\lib\generated_bridge.dart
+          }
+
+      - name: Cargo check (fast fail)
+        shell: pwsh
+        run: |
+          cargo check --features hwcodec,vram,flutter
+
       - name: Build Windows + MSI
         shell: pwsh
         run: |
