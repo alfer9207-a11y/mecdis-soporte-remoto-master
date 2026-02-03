@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=MecDis Soporte Remoto
+NoDisplay=true
+MimeType=x-scheme-handler/mecdis-soporte-remoto;
+TryExec=mecdis-soporte-remoto
+Exec=mecdis-soporte-remoto %u
+Icon=mecdis-soporte-remoto
+Terminal=false
+Type=Application
+StartupNotify=false
+StartupWMClass=mecdis-soporte-remoto

@@ -1,0 +1,71 @@
+name: Build MecDis Soporte Remoto (Windows)
+
+on:
+  workflow_dispatch:
+
+env:
+  VERSION: "1.0.0"
+  FLUTTER_VERSION: "3.24.5"
+  LLVM_VERSION: "15.0.6"
+  SCITER_RUST_VERSION: "1.75"
+  VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install LLVM and Clang
+        uses: KyleMayes/install-llvm-action@v1
+        with:
+          version: ${{ env.LLVM_VERSION }}
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: ${{ env.SCITER_RUST_VERSION }}
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: C:\vcpkg
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+
+      - name: Build Windows + MSI
+        shell: pwsh
+        run: |
+          python .\build.py --portable --hwcodec --flutter --vram --skip-portable-pack
+
+          if (!(Test-Path ".\flutter\build\windows\x64\runner\Release")) { throw "No se encontró salida de build Flutter" }
+
+          New-Item -ItemType Directory -Force -Path .\out | Out-Null
+          Copy-Item -Recurse -Force ".\flutter\build\windows\x64\runner\Release\*" ".\out\"
+
+          $exe = Get-ChildItem .\out -Filter *.exe | Select-Object -First 1
+          Rename-Item $exe.FullName "MecDis-Soporte-Remoto.exe"
+
+          pushd .\res\msi
+          python preprocess.py --arp -d ..\..\out
+          nuget restore msi.sln
+          & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" msi.sln -p:Configuration=Release -p:Platform=x64 /p:TargetVersion=Windows10
+          popd
+
+          $msi = Get-ChildItem .\res\msi\Package\bin\x64\Release\en-us -Filter *.msi | Select-Object -First 1
+          Copy-Item $msi.FullName ".\out\MecDis-Soporte-Remoto-${{ env.VERSION }}.msi"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: MecDis-Soporte-Remoto-Windows
+          path: out
