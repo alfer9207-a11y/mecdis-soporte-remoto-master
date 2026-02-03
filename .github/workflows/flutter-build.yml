@@ -162,6 +162,16 @@ jobs:
           prefix-key: ${{ matrix.job.os }}
 
       - name: Setup vcpkg with Github Actions binary cache
+
+      - name: Install FFmpeg (vcpkg)
+        shell: pwsh
+        run: |
+          vcpkg install ffmpeg[avcodec,avutil,swscale]:x64-windows-static
+
+      - name: Install rustfmt
+        shell: bash
+        run: |
+          rustup component add rustfmt --toolchain 1.75-x86_64-pc-windows-msvc
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgDirectory: C:\vcpkg
