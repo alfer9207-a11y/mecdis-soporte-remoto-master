@@ -90,6 +90,7 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - name: Restore bridge files
@@ -311,6 +312,7 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - name: Install LLVM and Clang
@@ -461,6 +463,7 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - name: Install flutter
@@ -586,6 +589,7 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - name: Import the codesign cert
@@ -899,6 +903,7 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - name: Install flutter
@@ -1171,6 +1176,7 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - name: Install flutter
@@ -1336,6 +1342,7 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - name: Set Swap Space
@@ -1666,6 +1673,7 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - name: Modify vcpkg.json for armv7
@@ -1868,6 +1876,7 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - name: Download Binary
@@ -1941,6 +1950,7 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - name: Download Binary
@@ -2002,6 +2012,7 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: recursive
 
       - name: Prepare env
