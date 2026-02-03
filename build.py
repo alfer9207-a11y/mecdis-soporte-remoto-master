@@ -432,6 +432,20 @@ def build_flutter_arch_manjaro(version, features):
 
 
 def build_flutter_windows(version, features, skip_portable_pack):
+    # Ensure flutter_rust_bridge generated Rust glue exists for flutter builds.
+    # (src/bridge_generated.rs is gitignored and must be generated in CI/local.)
+    if 'flutter' in features and not os.path.exists('src/bridge_generated.rs'):
+        try:
+            system2('cargo install flutter_rust_bridge_codegen --version 1.80.1 --features uuid --locked')
+        except Exception:
+            # If already installed, continue
+            pass
+        # Generate Rust + Dart bridge files (keep paths consistent with CI).
+        system2('flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs '
+                '--rust-output ./src/bridge_generated.rs '
+                '--dart-output ./flutter/lib/generated_bridge.dart '
+                '--c-output ./flutter/windows/runner/bridge_generated.h')
+
     if not skip_cargo:
         system2(f'cargo build --features {features} --lib --release')
         if not os.path.exists("target/release/librustdesk.dll"):
