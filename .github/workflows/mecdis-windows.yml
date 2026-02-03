@@ -9,7 +9,6 @@ env:
   LLVM_VERSION: "15.0.6"
   SCITER_RUST_VERSION: "1.75"
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
-  FLUTTER_RUST_BRIDGE_VERSION: "1.80.1"
 
 jobs:
   build-windows:
@@ -80,27 +79,22 @@ jobs:
         run: |
           rustup component add rustfmt --toolchain "${{ env.SCITER_RUST_VERSION }}-x86_64-pc-windows-msvc" 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host "rustfmt already present or toolchain mismatch" }
 
-
-            - name: Install Rust 1.82 for FRB codegen
-        shell: pwsh
-        run: |
-          rustup toolchain install 1.82.0-x86_64-pc-windows-msvc
-          echo "$env:USERPROFILE\.cargo\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          cargo +1.82.0-x86_64-pc-windows-msvc install flutter_rust_bridge_codegen --version ${{ env.FLUTTER_RUST_BRIDGE_VERSION }} --features "uuid" --locked
-
       - name: Generate FRB bridge (fast)
         shell: pwsh
         run: |
-          pushd flutter
-          (Get-Content pubspec.yaml) -replace 'extended_text: 14.0.0','extended_text: 13.0.0' | Set-Content pubspec.yaml
+          New-Item -ItemType Directory -Force -Path .\flutter\windows\runner | Out-Null
+          cargo install flutter_rust_bridge_codegen --version 1.80.1 --features uuid
+          pushd .\flutter
           flutter pub get
+          $frb = "$env:USERPROFILE\.cargo\bin\flutter_rust_bridge_codegen.exe"
+          if (!(Test-Path $frb)) { $frb = "flutter_rust_bridge_codegen" }
+          & $frb --rust-input ..\src\flutter_ffi.rs --rust-output ..\src\bridge_generated.rs --dart-output .\lib\generated_bridge.dart --c-output .\windows\runner\bridge_generated.h
           popd
-          flutter_rust_bridge_codegen --rust-input .\src\flutter_ffi.rs --rust-output .\src\bridge_generated.rs
 
       - name: Cargo check (fast fail)
-        shell: bash
+        shell: pwsh
         run: |
-          cargo check --features hwcodec,vram,flutter
+          cargo check --features hwcodec,vram,flutter --lib
 
       - name: Build Windows + MSI
         shell: pwsh
