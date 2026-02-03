@@ -21,6 +21,21 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      - name: Debug submodules
+        shell: bash
+        run: |
+          echo "=== SUBMODULE STATUS ==="
+          git submodule status
+
+          echo "=== LIST libs ==="
+          ls -la libs || true
+
+          echo "=== LIST libs/hbb_common ==="
+          ls -la libs/hbb_common || true
+
+          echo "=== CHECK Cargo.toml ==="
+          test -f libs/hbb_common/Cargo.toml && echo "OK: Cargo.toml exists" || (echo "FAIL: Cargo.toml missing" && exit 1)
+
       - name: Install LLVM and Clang
         uses: KyleMayes/install-llvm-action@v1
         with:
