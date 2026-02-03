@@ -9,6 +9,7 @@ env:
   LLVM_VERSION: "15.0.6"
   SCITER_RUST_VERSION: "1.75"
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
+  FLUTTER_RUST_BRIDGE_VERSION: "1.80.1"
 
 jobs:
   build-windows:
@@ -78,6 +79,28 @@ jobs:
         shell: pwsh
         run: |
           rustup component add rustfmt --toolchain "${{ env.SCITER_RUST_VERSION }}-x86_64-pc-windows-msvc" 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host "rustfmt already present or toolchain mismatch" }
+
+
+      - name: Install Rust 1.82 for FRB codegen
+        shell: bash
+        run: |
+          rustup toolchain install 1.82.0-x86_64-pc-windows-msvc
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          cargo +1.82.0-x86_64-pc-windows-msvc install flutter_rust_bridge_codegen --version ${{ env.FLUTTER_RUST_BRIDGE_VERSION }} --features "uuid" --locked
+
+      - name: Generate FRB bridge (fast)
+        shell: bash
+        run: |
+          pushd flutter
+          sed -i -e 's/extended_text: 14.0.0/extended_text: 13.0.0/g' pubspec.yaml || true
+          flutter pub get
+          popd
+          "$HOME/.cargo/bin/flutter_rust_bridge_codegen" --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart
+
+      - name: Cargo check (fast fail)
+        shell: bash
+        run: |
+          cargo check --features hwcodec,vram,flutter
 
       - name: Build Windows + MSI
         shell: pwsh
