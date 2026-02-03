@@ -93,30 +93,6 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Force update submodules
-        shell: bash
-        run: |
-          git submodule sync --recursive
-          git submodule update --init --recursive --force
-
-      - name: Debug submodules
-        shell: bash
-        run: |
-          echo "=== SUBMODULE STATUS ==="
-          git submodule status
-
-          echo "=== LIST libs ==="
-          ls -la libs || true
-
-          echo "=== LIST libs/hbb_common ==="
-          ls -la libs/hbb_common || true
-
-          echo "=== LIST libs/scrap ==="
-          ls -la libs/scrap || true
-
-          test -f libs/hbb_common/Cargo.toml && echo "OK hbb_common" || (echo "MISSING hbb_common" && exit 1)
-          test -f libs/scrap/Cargo.toml && echo "OK scrap" || (echo "MISSING scrap" && exit 1)
-
       - name: Restore bridge files
         uses: actions/download-artifact@master
         with:
@@ -162,17 +138,12 @@ jobs:
           prefix-key: ${{ matrix.job.os }}
 
       - name: Setup vcpkg with Github Actions binary cache
-
+        uses: lukka/run-vcpkg@v11
       - name: Install FFmpeg (vcpkg)
         shell: pwsh
         run: |
-          vcpkg install ffmpeg[avcodec,avutil,swscale]:x64-windows-static
+          C:\vcpkg\vcpkg.exe install ffmpeg[avcodec,avutil,swscale]:x64-windows-static
 
-      - name: Install rustfmt
-        shell: bash
-        run: |
-          rustup component add rustfmt --toolchain 1.75-x86_64-pc-windows-msvc
-        uses: lukka/run-vcpkg@v11
         with:
           vcpkgDirectory: C:\vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
