@@ -92,7 +92,7 @@ pub fn start_global_event_stream(s: StreamSink<String>, app_type: String) -> Res
 pub fn stop_global_event_stream(app_type: String) {
     super::flutter::stop_global_event_stream(app_type)
 }
-#[derive(Clone, Debug, flutter_rust_bridge::IntoDart)]
+#[derive(Clone, Debug)]
 pub enum EventToUI {
     Event(String),
     Rgba(usize),

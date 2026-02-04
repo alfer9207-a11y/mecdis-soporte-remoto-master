@@ -69,7 +69,7 @@ bytes = { version = "1.4", features = ["serde"] }
 default-net = "0.14"
 wol-rs = "1.0"
 # Enable derive macro(s) needed for IntoDart/IntoIntoDart in FRB 1.80.x
-flutter_rust_bridge = { version = "=1.80", features = ["uuid", "derive"], optional = true}
+flutter_rust_bridge = { version = "=1.80", features = ["uuid"], optional = true}
 errno = "0.3"
 rdev = { git = "https://github.com/rustdesk-org/rdev" }
 url = { version = "2.3", features = ["serde"] }
