@@ -54,3 +54,7 @@ vcpkg_installed
 flutter/lib/generated_plugin_registrant.dart
 libsciter.dylib
 flutter/web/
+
+# --- FRB generated bindings (must be committed for CI) ---
+!src/bridge_generated.rs
+!src/bridge_generated.io.rs
