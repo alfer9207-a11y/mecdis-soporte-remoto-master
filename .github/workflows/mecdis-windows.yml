@@ -41,12 +41,10 @@ jobs:
           flutter pub get
           Pop-Location
 
-      # vcpkg + rust steps remain as-is in your repo
-
-      - name: Build Windows (stable, no hwcodec)
+      - name: Build Windows (standard, no hwcodec, no vram)
         shell: pwsh
         run: |
-          python .\build.py --flutter --vram --skip-portable
+          python .\build.py --flutter --skip-portable
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
