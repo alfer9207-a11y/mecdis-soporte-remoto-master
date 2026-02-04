@@ -467,8 +467,12 @@ def build_flutter_windows(version, features, skip_portable_pack):
         os.replace('./target/release/rustdesk-portable-packer.exe',
                    './rustdesk_portable.exe')
     else:
-        os.rename('./target/release/rustdesk-portable-packer.exe',
-                  './rustdesk_portable.exe')
+        # Portable packer output may be missing in some environments (CI). If it's not present, skip portable packaging.
+portable_packer = "./target/release/rustdesk-portable-packer.exe"
+if os.path.exists(portable_packer):
+    os.rename(portable_packer, "./rustdesk_portable.exe")
+else:
+    print("WARN: portable packer exe not found, skipping portable build:", portable_packer)
     print(
         f'output location: {os.path.abspath(os.curdir)}/rustdesk_portable.exe')
     os.rename('./rustdesk_portable.exe', f'./rustdesk-{version}-install.exe')

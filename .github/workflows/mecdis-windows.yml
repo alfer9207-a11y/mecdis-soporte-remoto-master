@@ -82,7 +82,7 @@ jobs:
       - name: Build Windows (Flutter + packaged EXE)
         shell: pwsh
         run: |
-          python .\build.py --hwcodec --flutter --vram
+          python .\build.py --hwcodec --flutter --vram --skip-portable
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
