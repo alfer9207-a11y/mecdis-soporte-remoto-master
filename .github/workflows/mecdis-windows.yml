@@ -21,21 +21,6 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Debug submodules
-        shell: bash
-        run: |
-          echo "=== SUBMODULE STATUS ==="
-          git submodule status
-
-          echo "=== LIST libs ==="
-          ls -la libs || true
-
-          echo "=== LIST libs/hbb_common ==="
-          ls -la libs/hbb_common || true
-
-          echo "=== CHECK Cargo.toml ==="
-          test -f libs/hbb_common/Cargo.toml && echo "OK: Cargo.toml exists" || (echo "FAIL: Cargo.toml missing" && exit 1)
-
       - name: Install LLVM and Clang
         uses: KyleMayes/install-llvm-action@v1
         with:
@@ -59,55 +44,24 @@ jobs:
           vcpkgDirectory: C:\vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
 
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\vcpkg\installed
+            C:\vcpkg\downloads
+          key: vcpkg-${{ runner.os }}-${{ env.VCPKG_COMMIT_ID }}-x64-windows-static
+
       - name: Install vcpkg dependencies
         shell: bash
         env:
           VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
         run: |
           if ! $VCPKG_ROOT/vcpkg install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"; then
-            find "${VCPKG_ROOT}/" -name "*.log" | while read -r _1; do
-              echo "$_1:"
-              echo "======"
-              cat "$_1" || true
-              echo "======"
-            done
             exit 1
           fi
-
-      - name: Ensure rustfmt (Windows)
-        shell: pwsh
-        run: |
-          rustup component add rustfmt --toolchain "${{ env.SCITER_RUST_VERSION }}-x86_64-pc-windows-msvc" 2>$null; if ($LASTEXITCODE -ne 0) { Write-Host "rustfmt already present or toolchain mismatch" }
-
-      - name: Cargo check (fast fail)
-        shell: pwsh
-        run: |
-          cargo check --features hwcodec,vram,flutter --lib
 
       - name: Build Windows + MSI
         shell: pwsh
         run: |
           python .\build.py --portable --hwcodec --flutter --vram --skip-portable-pack
-
-          if (!(Test-Path ".\flutter\build\windows\x64\runner\Release")) { throw "No se encontró salida de build Flutter" }
-
-          New-Item -ItemType Directory -Force -Path .\out | Out-Null
-          Copy-Item -Recurse -Force ".\flutter\build\windows\x64\runner\Release\*" ".\out\"
-
-          $exe = Get-ChildItem .\out -Filter *.exe | Select-Object -First 1
-          Rename-Item $exe.FullName "MecDis-Soporte-Remoto.exe"
-
-          pushd .\res\msi
-          python preprocess.py --arp -d ..\..\out
-          nuget restore msi.sln
-          & "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe" msi.sln -p:Configuration=Release -p:Platform=x64 /p:TargetVersion=Windows10
-          popd
-
-          $msi = Get-ChildItem .\res\msi\Package\bin\x64\Release\en-us -Filter *.msi | Select-Object -First 1
-          Copy-Item $msi.FullName ".\out\MecDis-Soporte-Remoto-${{ env.VERSION }}.msi"
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: MecDis-Soporte-Remoto-Windows
-          path: out
