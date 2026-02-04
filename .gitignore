@@ -42,7 +42,6 @@ flatpak/build/**
 flatpak/repo/**
 flatpak/*.flatpak
 # bridge file
-lib/generated_bridge.dart
 # vscode devcontainer
 .gitconfig
 .vscode-server/
