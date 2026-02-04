@@ -432,19 +432,19 @@ def build_flutter_arch_manjaro(version, features):
 
 
 def build_flutter_windows(version, features, skip_portable_pack):
-    # Ensure flutter_rust_bridge generated Rust glue exists for flutter builds.
-    # (src/bridge_generated.rs is gitignored and must be generated in CI/local.)
-    if 'flutter' in features and not os.path.exists('src/bridge_generated.rs'):
-        try:
-            system2('cargo install flutter_rust_bridge_codegen --version 1.80.1 --features uuid --locked')
-        except Exception:
-            # If already installed, continue
-            pass
-        # Generate Rust + Dart bridge files (keep paths consistent with CI).
-        system2('flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs '
-                '--rust-output ./src/bridge_generated.rs '
-                '--dart-output ./flutter/lib/generated_bridge.dart '
-                '--c-output ./flutter/windows/runner/bridge_generated.h')
+    # FRB bindings must be generated locally and committed to the repo.
+    # CI must NOT run flutter_rust_bridge_codegen (requires newer Rust).
+    if 'flutter' in features:
+        required = [
+            'src/bridge_generated.rs',
+            'flutter/lib/generated_bridge.dart',
+            'flutter/lib/generated_bridge.freezed.dart',
+        ]
+        missing = [p for p in required if not os.path.exists(p)]
+        if missing:
+            print('ERROR: Missing committed FRB bindings: ' + ', '.join(missing))
+            print('Run scripts/generate_frb.ps1 locally and commit the generated files.')
+            exit(1)
 
     if not skip_cargo:
         system2(f'cargo build --features {features} --lib --release')

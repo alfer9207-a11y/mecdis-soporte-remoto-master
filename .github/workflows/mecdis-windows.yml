@@ -57,11 +57,3 @@ jobs:
         env:
           VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
         run: |
-          if ! $VCPKG_ROOT/vcpkg install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"; then
-            exit 1
-          fi
-
-      - name: Build Windows + MSI
-        shell: pwsh
-        run: |
-          python .\build.py --portable --hwcodec --flutter --vram --skip-portable-pack
