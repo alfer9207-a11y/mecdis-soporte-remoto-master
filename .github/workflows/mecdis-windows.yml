@@ -1,3 +1,9 @@
+# Patch: hwcodec build fix (set VCPKG_ROOT + backtrace)
+# Drop-in replacement for .github/workflows/mecdis-windows.yml sections:
+# - Add env: VCPKG_ROOT, RUST_BACKTRACE
+# - Ensure vcpkg is at C:\vcpkg (matches existing steps)
+# - Build step unchanged, but now hwcodec build.rs can find VCPKG_ROOT
+
 name: build-windows
 
 on:
@@ -12,6 +18,8 @@ jobs:
       CI: "true"
       FLUTTER_SUPPRESS_ANALYTICS: "true"
       PUB_CACHE: ${{ github.workspace }}\.pub-cache
+      VCPKG_ROOT: C:\vcpkg
+      RUST_BACKTRACE: "1"
 
     steps:
       - name: Checkout (with submodules + LFS)
@@ -32,7 +40,6 @@ jobs:
           flutter --version
           flutter config --no-analytics --no-cli-animations
 
-          # Precache can be flaky on first run; retry a couple times.
           for ($i=1; $i -le 3; $i++) {
             Write-Host "flutter precache attempt $i/3"
             flutter precache --windows
@@ -47,7 +54,16 @@ jobs:
           flutter pub get
           Pop-Location
 
-      # vcpkg step is assumed to be in your existing workflow above; keep your current vcpkg install step(s) here.
+      # Keep your existing vcpkg install step(s) here (do not change paths).
+      # IMPORTANT: vcpkg must live at C:\vcpkg to match VCPKG_ROOT above.
+
+      - name: Print key env (debug)
+        shell: pwsh
+        run: |
+          Write-Host "VCPKG_ROOT=$env:VCPKG_ROOT"
+          Write-Host "PUB_CACHE=$env:PUB_CACHE"
+          rustc -V
+          cargo -V
 
       - name: Build Windows (Flutter + packaged EXE)
         shell: pwsh
