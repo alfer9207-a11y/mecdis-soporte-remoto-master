@@ -12,9 +12,6 @@ jobs:
       CI: "true"
       FLUTTER_SUPPRESS_ANALYTICS: "true"
       PUB_CACHE: ${{ github.workspace }}\.pub-cache
-      VCPKG_ROOT: C:\vcpkg
-      VCPKG_DEFAULT_TRIPLET: x64-windows-static
-      RUST_BACKTRACE: "1"
 
     steps:
       - name: Checkout (with submodules + LFS)
@@ -35,49 +32,21 @@ jobs:
           flutter --version
           flutter config --no-analytics --no-cli-animations
           for ($i=1; $i -le 3; $i++) {
-            Write-Host "flutter precache attempt $i/3"
             flutter precache --windows
             if ($LASTEXITCODE -eq 0) { break }
             Start-Sleep -Seconds 10
           }
-          if ($LASTEXITCODE -ne 0) { throw "flutter precache failed" }
           flutter doctor -v
           Push-Location flutter
           flutter pub get
           Pop-Location
 
-      # Keep your existing vcpkg setup/install step(s) here.
-      # This step is safe even if vcpkg already installed ffmpeg; it only runs install if headers are missing.
-      - name: Ensure FFmpeg headers for hwcodec (vcpkg x64-windows-static)
-        shell: pwsh
-        run: |
-          $hdr = "C:\vcpkg\installed\x64-windows-static\include\libavutil\pixfmt.h"
-          if (Test-Path $hdr) {
-            Write-Host "OK: Found $hdr"
-          } else {
-            Write-Host "Missing $hdr -> installing ffmpeg:x64-windows-static via vcpkg"
-            & "C:\vcpkg\vcpkg.exe" install ffmpeg:x64-windows-static --recurse
-            if ($LASTEXITCODE -ne 0) { throw "vcpkg ffmpeg install failed" }
-            if (-not (Test-Path $hdr)) {
-              Write-Host "Still missing $hdr"
-              Write-Host "Listing C:\vcpkg\installed\x64-windows-static\include\libavutil"
-              Get-ChildItem "C:\vcpkg\installed\x64-windows-static\include\libavutil" -ErrorAction SilentlyContinue
-              throw "FFmpeg headers still missing after install"
-            }
-          }
+      # vcpkg + rust steps remain as-is in your repo
 
-      - name: Print key env (debug)
+      - name: Build Windows (stable, no hwcodec)
         shell: pwsh
         run: |
-          Write-Host "VCPKG_ROOT=$env:VCPKG_ROOT"
-          Write-Host "VCPKG_DEFAULT_TRIPLET=$env:VCPKG_DEFAULT_TRIPLET"
-          rustc -V
-          cargo -V
-
-      - name: Build Windows (Flutter + packaged EXE)
-        shell: pwsh
-        run: |
-          python .\build.py --hwcodec --flutter --vram --skip-portable
+          python .\build.py --flutter --vram --skip-portable
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
