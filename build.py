@@ -463,16 +463,16 @@ def build_flutter_windows(version, features, skip_portable_pack):
     system2(
         f'python3 ./generate.py -f ../../{flutter_build_dir_2} -o . -e ../../{flutter_build_dir_2}/rustdesk.exe')
     os.chdir('../..')
+    portable_packer = "./target/release/rustdesk-portable-packer.exe"
+    # In some environments (e.g., CI), the portable packer may not be built/present.
+    # If it's missing, skip portable packaging instead of failing the whole build.
     if os.path.exists('./rustdesk_portable.exe'):
-        os.replace('./target/release/rustdesk-portable-packer.exe',
-                   './rustdesk_portable.exe')
+        pass
+    elif os.path.exists(portable_packer):
+        os.rename(portable_packer, "./rustdesk_portable.exe")
     else:
-        # Portable packer output may be missing in some environments (CI). If it's not present, skip portable packaging.
-portable_packer = "./target/release/rustdesk-portable-packer.exe"
-if os.path.exists(portable_packer):
-    os.rename(portable_packer, "./rustdesk_portable.exe")
-else:
-    print("WARN: portable packer exe not found, skipping portable build:", portable_packer)
+        print("WARN: portable packer exe not found, skipping portable build:", portable_packer)
+        return
     print(
         f'output location: {os.path.abspath(os.curdir)}/rustdesk_portable.exe')
     os.rename('./rustdesk_portable.exe', f'./rustdesk-{version}-install.exe')
