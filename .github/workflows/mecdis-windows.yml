@@ -14,11 +14,27 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      - name: Checkout
+      - name: Checkout (with submodules + LFS)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           submodules: recursive
+          lfs: true
+
+      - name: Sanity check committed FRB bindings (must exist)
+        shell: pwsh
+        run: |
+          Write-Host "Listing FRB binding files..."
+          Get-ChildItem -Path .\src -Filter "bridge_generated*" -ErrorAction SilentlyContinue | Format-Table -AutoSize
+          if (!(Test-Path ".\src\bridge_generated.rs")) {
+            Write-Error "Missing committed FRB bindings: src/bridge_generated.rs"
+            exit 1
+          }
+          if (!(Test-Path ".\flutter\lib\generated_bridge.dart")) {
+            Write-Error "Missing committed FRB bindings: flutter/lib/generated_bridge.dart"
+            exit 1
+          }
+          Write-Host "OK: FRB bindings present."
 
       - name: Install LLVM and Clang
         uses: KyleMayes/install-llvm-action@v1
