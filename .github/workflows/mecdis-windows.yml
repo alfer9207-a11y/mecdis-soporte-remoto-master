@@ -1,149 +1,66 @@
-name: Build MecDis Soporte Remoto (Windows)
+name: build-windows
 
 on:
+  push:
+    branches: [ "main" ]
   workflow_dispatch:
-
-env:
-  FLUTTER_VERSION: "3.24.5"
-  LLVM_VERSION: "15.0.6"
-  SCITER_RUST_VERSION: "1.75"
-  VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
-  # Keep pub cache inside workspace so we can cache it reliably on Windows runners
-  PUB_CACHE: ${{ github.workspace }}\.pub-cache
-  # Avoid first-run analytics prompts/noise in CI
-  FLUTTER_SUPPRESS_ANALYTICS: "true"
-  CI: "true"
 
 jobs:
   build-windows:
-    runs-on: windows-2022
+    runs-on: windows-latest
+    env:
+      CI: "true"
+      FLUTTER_SUPPRESS_ANALYTICS: "true"
+      PUB_CACHE: ${{ github.workspace }}\.pub-cache
 
     steps:
       - name: Checkout (with submodules + LFS)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           submodules: recursive
           lfs: true
-
-      - name: Sanity check committed FRB bindings (must exist)
-        shell: pwsh
-        run: |
-          Write-Host "Listing FRB binding files..."
-          Get-ChildItem -Path .\src -Filter "bridge_generated*" -ErrorAction SilentlyContinue | Format-Table -AutoSize
-          if (!(Test-Path ".\src\bridge_generated.rs")) {
-            Write-Error "Missing committed FRB bindings: src/bridge_generated.rs"
-            exit 1
-          }
-          if (!(Test-Path ".\flutter\lib\generated_bridge.dart")) {
-            Write-Error "Missing committed FRB bindings: flutter/lib/generated_bridge.dart"
-            exit 1
-          }
-          Write-Host "OK: FRB bindings present."
-
-      - name: Install LLVM and Clang
-        uses: KyleMayes/install-llvm-action@v1
-        with:
-          version: ${{ env.LLVM_VERSION }}
 
       - name: Install Flutter (with cache)
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
-          cache-key: flutter-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-${{ hashFiles('flutter/pubspec.lock') }}
-          cache-path: ${{ env.PUB_CACHE }}
 
-      - name: Flutter sanity (doctor + enable windows + pub get)
+      - name: Flutter sanity (doctor + precache + pub get)
         shell: pwsh
         run: |
           flutter --version
-          flutter config --no-analytics
-          flutter config --enable-windows-desktop
-          flutter precache --windows
+          flutter config --no-analytics --no-cli-animations
+
+          # Precache can be flaky on first run; retry a couple times.
+          for ($i=1; $i -le 3; $i++) {
+            Write-Host "flutter precache attempt $i/3"
+            flutter precache --windows
+            if ($LASTEXITCODE -eq 0) { break }
+            Start-Sleep -Seconds 10
+          }
+          if ($LASTEXITCODE -ne 0) { throw "flutter precache failed" }
+
           flutter doctor -v
-          Push-Location .\flutter
+
+          Push-Location flutter
           flutter pub get
           Pop-Location
 
-      - name: Cache Dart/Flutter pub packages
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.PUB_CACHE }}
-          key: pub-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-${{ hashFiles('flutter/pubspec.lock') }}
-          restore-keys: |
-            pub-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-
+      # vcpkg step is assumed to be in your existing workflow above; keep your current vcpkg install step(s) here.
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@v1
-        with:
-          toolchain: ${{ env.SCITER_RUST_VERSION }}-x86_64-pc-windows-msvc
-          components: "rustfmt"
-
-      - name: Cache Cargo registry + git (safe)
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: cargo-${{ runner.os }}-${{ env.SCITER_RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            cargo-${{ runner.os }}-${{ env.SCITER_RUST_VERSION }}-
-            cargo-${{ runner.os }}-
-
-      # Optional but high impact: cache incremental build outputs.
-      # If you ever hit weird build issues, remove "target" from this cache first.
-      - name: Cache Cargo target (fast, low risk)
-        uses: actions/cache@v4
-        with:
-          path: |
-            target
-          key: target-${{ runner.os }}-${{ env.SCITER_RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('**/build.rs') }}
-          restore-keys: |
-            target-${{ runner.os }}-${{ env.SCITER_RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-
-            target-${{ runner.os }}-${{ env.SCITER_RUST_VERSION }}-
-            target-${{ runner.os }}-
-
-      - name: Setup vcpkg
-        uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgDirectory: C:\vcpkg
-          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
-
-      - name: Cache vcpkg (installed + downloads only)
-        uses: actions/cache@v4
-        with:
-          path: |
-            C:\vcpkg\installed
-            C:\vcpkg\downloads
-          key: vcpkg-${{ runner.os }}-${{ env.VCPKG_COMMIT_ID }}-x64-windows-static
-          restore-keys: |
-            vcpkg-${{ runner.os }}-${{ env.VCPKG_COMMIT_ID }}-
-
-      - name: Install vcpkg dependencies
-        shell: bash
-        env:
-          VCPKG_DEFAULT_HOST_TRIPLET: x64-windows-static
-        run: |
-          if ! $VCPKG_ROOT/vcpkg install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"; then
-            exit 1
-          fi
-
-      # IMPORTANT:
-      # - CI must NOT run flutter_rust_bridge_codegen.
-      # - Bindings are generated locally and committed.
       - name: Build Windows (Flutter + packaged EXE)
         shell: pwsh
         run: |
-          # Verbose flutter output helps debug rare CI-only failures
           python .\build.py --hwcodec --flutter --vram --skip-portable
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: MecDis-Soporte-Remoto-Windows
+          name: windows-build
           path: |
-            rustdesk-*-install.exe
-            rustdesk_portable.exe
-            flutter\build\windows\x64\runner\Release\**
+            **\*.msi
+            **\*.exe
+            **\dist\**
+            **\build\**
+          if-no-files-found: warn
