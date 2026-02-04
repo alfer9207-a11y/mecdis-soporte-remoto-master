@@ -10,6 +10,9 @@ env:
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
   # Keep pub cache inside workspace so we can cache it reliably on Windows runners
   PUB_CACHE: ${{ github.workspace }}\.pub-cache
+  # Avoid first-run analytics prompts/noise in CI
+  FLUTTER_SUPPRESS_ANALYTICS: "true"
+  CI: "true"
 
 jobs:
   build-windows:
@@ -51,6 +54,18 @@ jobs:
           cache: true
           cache-key: flutter-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-${{ hashFiles('flutter/pubspec.lock') }}
           cache-path: ${{ env.PUB_CACHE }}
+
+      - name: Flutter sanity (doctor + enable windows + pub get)
+        shell: pwsh
+        run: |
+          flutter --version
+          flutter config --no-analytics
+          flutter config --enable-windows-desktop
+          flutter precache --windows
+          flutter doctor -v
+          Push-Location .\flutter
+          flutter pub get
+          Pop-Location
 
       - name: Cache Dart/Flutter pub packages
         uses: actions/cache@v4
@@ -121,6 +136,7 @@ jobs:
       - name: Build Windows (Flutter + packaged EXE)
         shell: pwsh
         run: |
+          # Verbose flutter output helps debug rare CI-only failures
           python .\build.py --hwcodec --flutter --vram --skip-portable
 
       - name: Upload build artifacts
