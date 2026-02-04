@@ -8,6 +8,8 @@ env:
   LLVM_VERSION: "15.0.6"
   SCITER_RUST_VERSION: "1.75"
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
+  # Keep pub cache inside workspace so we can cache it reliably on Windows runners
+  PUB_CACHE: ${{ github.workspace }}\.pub-cache
 
 jobs:
   build-windows:
@@ -41,11 +43,22 @@ jobs:
         with:
           version: ${{ env.LLVM_VERSION }}
 
-      - name: Install Flutter
+      - name: Install Flutter (with cache)
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+          cache-key: flutter-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-${{ hashFiles('flutter/pubspec.lock') }}
+          cache-path: ${{ env.PUB_CACHE }}
+
+      - name: Cache Dart/Flutter pub packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PUB_CACHE }}
+          key: pub-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-${{ hashFiles('flutter/pubspec.lock') }}
+          restore-keys: |
+            pub-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@v1
@@ -53,19 +66,45 @@ jobs:
           toolchain: ${{ env.SCITER_RUST_VERSION }}-x86_64-pc-windows-msvc
           components: "rustfmt"
 
+      - name: Cache Cargo registry + git (safe)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ env.SCITER_RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-${{ env.SCITER_RUST_VERSION }}-
+            cargo-${{ runner.os }}-
+
+      # Optional but high impact: cache incremental build outputs.
+      # If you ever hit weird build issues, remove "target" from this cache first.
+      - name: Cache Cargo target (fast, low risk)
+        uses: actions/cache@v4
+        with:
+          path: |
+            target
+          key: target-${{ runner.os }}-${{ env.SCITER_RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('**/build.rs') }}
+          restore-keys: |
+            target-${{ runner.os }}-${{ env.SCITER_RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}-
+            target-${{ runner.os }}-${{ env.SCITER_RUST_VERSION }}-
+            target-${{ runner.os }}-
+
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgDirectory: C:\vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
 
-      - name: Cache vcpkg
+      - name: Cache vcpkg (installed + downloads only)
         uses: actions/cache@v4
         with:
           path: |
             C:\vcpkg\installed
             C:\vcpkg\downloads
           key: vcpkg-${{ runner.os }}-${{ env.VCPKG_COMMIT_ID }}-x64-windows-static
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ env.VCPKG_COMMIT_ID }}-
 
       - name: Install vcpkg dependencies
         shell: bash
