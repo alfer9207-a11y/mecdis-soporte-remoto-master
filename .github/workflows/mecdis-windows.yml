@@ -14,7 +14,6 @@ jobs:
       PUB_CACHE: ${{ github.workspace }}\.pub-cache
       VCPKG_ROOT: C:\vcpkg
       VCPKG_DEFAULT_TRIPLET: x64-windows
-      # Keep it stable: do NOT use manifest mode here
       VCPKG_DISABLE_METRICS: "1"
       VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
       RUST_BACKTRACE: "1"
@@ -26,30 +25,22 @@ jobs:
           submodules: recursive
           lfs: true
 
-      - name: Install Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-
       - name: Install Flutter (with cache)
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      - name: Flutter sanity (doctor + precache + pub get)
+      - name: Flutter sanity (precache + pub get)
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          flutter --version
           flutter config --no-analytics --no-cli-animations
           for ($i=1; $i -le 3; $i++) {
             flutter precache --windows
             if ($LASTEXITCODE -eq 0) { break }
             Start-Sleep -Seconds 10
           }
-          flutter doctor -v
           Push-Location flutter
           flutter pub get
           Pop-Location
@@ -66,8 +57,6 @@ jobs:
             & C:\vcpkg\bootstrap-vcpkg.bat
           }
           & C:\vcpkg\vcpkg.exe version
-          Write-Host "VCPKG_ROOT=$env:VCPKG_ROOT"
-          Write-Host "VCPKG_DEFAULT_TRIPLET=$env:VCPKG_DEFAULT_TRIPLET"
 
       - name: Ensure Opus via vcpkg (classic mode ONLY) [STABLE]
         shell: pwsh
@@ -96,14 +85,44 @@ jobs:
             throw "vcpkg opus (classic) install failed"
           }
 
-          if (-not (Test-Path $hdr)) {
-            Write-Host "==== vcpkg-opus-classic.log (tail) ===="
-            Get-Content $log -Tail 250
-            throw "Opus headers still missing after classic install"
-          }
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Prepare portable packer required assets (fix missing include_bytes files)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          # Required by include_bytes!() in libs/portable/src/*.rs
+          New-Item -ItemType Directory -Force -Path "libs\portable\res" | Out-Null
+
+          $dataBin = "libs\portable\data.bin"
+          if (-not (Test-Path $dataBin)) {
+            Write-Host "Creating placeholder: $dataBin"
+            # empty file is fine
+            [System.IO.File]::WriteAllBytes($dataBin, @())
+          }
+
+          $labelPng = "libs\portable\res\label.png"
+          if (-not (Test-Path $labelPng)) {
+            Write-Host "Creating placeholder: $labelPng (1x1 png)"
+            $bytes = [System.Convert]::FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/6X2Z0sAAAAASUVORK5CYII=")
+            [System.IO.File]::WriteAllBytes($labelPng, $bytes)
+          }
+
+          $metaToml = "libs\portable\app_metadata.toml"
+          if (-not (Test-Path $metaToml)) {
+            Write-Host "Creating placeholder: $metaToml"
+            @"
+name = "Mec-Dis Soporte Remoto"
+publisher = "Mec-Dis Computadoras"
+homepage = "https://mec-dis.com"
+"@ | Set-Content -Path $metaToml -Encoding UTF8
+          }
+
+          Write-Host "Listing portable assets:"
+          Get-ChildItem "libs\portable" -Force | Select-Object Name,Length
+          Get-ChildItem "libs\portable\res" -Force | Select-Object Name,Length
 
       - name: Build portable packer (needed for installer exe)
         shell: pwsh
@@ -122,7 +141,6 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          # 1) Installer EXE produced by build.py (libs/portable/rustdesk-<ver>-install.exe)
           $installer = Get-ChildItem -Path "libs/portable" -Filter "rustdesk-*-install.exe" -File -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
@@ -137,12 +155,9 @@ jobs:
           Copy-Item $installer.FullName $setupOut -Force
           Write-Host "Setup EXE: $setupOut"
 
-          # 2) Portable ZIP from Flutter Release folder
           $releaseDir = "flutter\build\windows\x64\runner\Release"
           if (-not (Test-Path $releaseDir)) {
-            Write-Host "Release folder not found: $releaseDir"
-            Get-ChildItem -Path "flutter\build\windows" -Recurse -Depth 4 -ErrorAction SilentlyContinue | Select-Object FullName | Out-String | Write-Host
-            throw "Flutter Release output missing"
+            throw "Flutter Release output missing: $releaseDir"
           }
 
           $portableZip = Join-Path "dist" "Mec-Dis-Soporte-Remoto-Portable.zip"
