@@ -1,8 +1,8 @@
-name: build-windows
+name: Mec-Dis Windows Build (Installer + Portable)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch:
 
 jobs:
@@ -14,10 +14,10 @@ jobs:
       PUB_CACHE: ${{ github.workspace }}\.pub-cache
       VCPKG_ROOT: C:\vcpkg
       VCPKG_DEFAULT_TRIPLET: x64-windows
-      VCPKG_FEATURE_FLAGS: manifests,binarycaching
-      RUST_BACKTRACE: "1"
-      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+      # Keep it stable: do NOT use manifest mode here
       VCPKG_DISABLE_METRICS: "1"
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+      RUST_BACKTRACE: "1"
 
     steps:
       - name: Checkout (with submodules + LFS)
@@ -25,6 +25,12 @@ jobs:
         with:
           submodules: recursive
           lfs: true
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
 
       - name: Install Flutter (with cache)
         uses: subosito/flutter-action@v2
@@ -35,6 +41,7 @@ jobs:
       - name: Flutter sanity (doctor + precache + pub get)
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           flutter --version
           flutter config --no-analytics --no-cli-animations
           for ($i=1; $i -le 3; $i++) {
@@ -50,130 +57,101 @@ jobs:
       - name: MSVC dev cmd (needed for vcpkg + native deps)
         uses: ilammy/msvc-dev-cmd@v1
 
-      # Force VCPKG_ROOT AFTER MSVC dev cmd, because the MSVC toolchain can inject a VS-integrated vcpkg path.
-      - name: Force VCPKG_ROOT (avoid VS integrated vcpkg)
-        shell: pwsh
-        run: |
-          $V = "C:\vcpkg"
-          "VCPKG_ROOT=$V" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "VCPKG_DEFAULT_TRIPLET=x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "VCPKG_FEATURE_FLAGS=manifests,binarycaching" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Cache vcpkg (installed + downloads)
-        uses: actions/cache@v4
-        with:
-          path: |
-            C:\vcpkg\installed
-            C:\vcpkg\packages
-            C:\vcpkg\downloads
-          key: vcpkg-${{ runner.os }}-${{ env.VCPKG_DEFAULT_TRIPLET }}-opus
-
       - name: Bootstrap vcpkg (if missing)
         shell: pwsh
         run: |
-          $V = "C:\vcpkg"
-          if (-not (Test-Path "$V\vcpkg.exe")) {
-            Write-Host "Cloning vcpkg into $V ..."
-            git clone --depth 1 https://github.com/microsoft/vcpkg "$V"
+          $ErrorActionPreference = "Stop"
+          if (-not (Test-Path "C:\vcpkg\vcpkg.exe")) {
+            git clone https://github.com/microsoft/vcpkg C:\vcpkg
+            & C:\vcpkg\bootstrap-vcpkg.bat
           }
-          & "$V\bootstrap-vcpkg.bat" -disableMetrics
-          & "$V\vcpkg.exe" version
-      - name: Ensure Opus via vcpkg (classic mode ONLY) [NO-MANIFEST FIX]
+          & C:\vcpkg\vcpkg.exe version
+          Write-Host "VCPKG_ROOT=$env:VCPKG_ROOT"
+          Write-Host "VCPKG_DEFAULT_TRIPLET=$env:VCPKG_DEFAULT_TRIPLET"
+
+      - name: Ensure Opus via vcpkg (classic mode ONLY) [STABLE]
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-
           $trip = $env:VCPKG_DEFAULT_TRIPLET
           if ([string]::IsNullOrWhiteSpace($trip)) { $trip = "x64-windows" }
 
           $hdr = "C:\vcpkg\installed\$trip\include\opus\opus.h"
           if (Test-Path $hdr) {
-      Write-Host "OK: Found $hdr"
-      exit 0
+            Write-Host "OK: Found $hdr"
+            exit 0
           }
 
           $log = Join-Path $env:RUNNER_TEMP "vcpkg-opus-classic.log"
           Write-Host "Installing ONLY opus via vcpkg classic mode -> triplet=$trip"
-          Write-Host "Log: $log"
-
           & "C:\vcpkg\vcpkg.exe" install opus `
-      "--classic" `
-      "--x-install-root=C:\vcpkg\installed" `
-      "--triplet" $trip `
-      "--clean-after-build" 2>&1 | Tee-Object -FilePath $log
+            "--classic" `
+            "--x-install-root=C:\vcpkg\installed" `
+            "--triplet" $trip `
+            "--clean-after-build" 2>&1 | Tee-Object -FilePath $log
 
           if ($LASTEXITCODE -ne 0) {
-      Write-Host "==== vcpkg-opus-classic.log (tail) ===="
-      Get-Content $log -Tail 250
-      throw "vcpkg opus (classic) install failed"
+            Write-Host "==== vcpkg-opus-classic.log (tail) ===="
+            Get-Content $log -Tail 250
+            throw "vcpkg opus (classic) install failed"
           }
 
           if (-not (Test-Path $hdr)) {
-      Write-Host "==== vcpkg-opus-classic.log (tail) ===="
-      Get-Content $log -Tail 250
-      throw "Opus headers still missing after classic install"
+            Write-Host "==== vcpkg-opus-classic.log (tail) ===="
+            Get-Content $log -Tail 250
+            throw "Opus headers still missing after classic install"
           }
 
-      - name: Print key env (debug)
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build portable packer (needed for installer exe)
         shell: pwsh
         run: |
-          Write-Host "VCPKG_ROOT=$env:VCPKG_ROOT"
-          Write-Host "VCPKG_DEFAULT_TRIPLET=$env:VCPKG_DEFAULT_TRIPLET"
-          where.exe cl.exe
-          cl.exe /Bv
-          rustc -V
-          cargo -V
-
-
-      - name: Build rustdesk-portable-packer (for Setup EXE)
-        shell: pwsh
-        run: |
+          $ErrorActionPreference = "Stop"
           cargo build -p rustdesk-portable-packer --release
 
-
-      - name: Build Windows (standard, no hwcodec, no vram)
+      - name: Build Mec-Dis (Flutter) + create Installer EXE
         shell: pwsh
         run: |
-          python .\build.py --flutter
+          $ErrorActionPreference = "Stop"
+          python build.py --flutter --portable
 
-
-      - name: Create Mec-Dis portable ZIP + rename Setup EXE
+      - name: Prepare Mec-Dis artifacts (Setup EXE + Portable ZIP)
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
-          # Get version from Cargo.toml (package version)
-          $cargo = Get-Content .\Cargo.toml -Raw
-          $m = [regex]::Match($cargo, '^\s*version\s*=\s*"(.*?)"\s*$', 'Multiline')
-          $ver = if ($m.Success) { $m.Groups[1].Value } else { "unknown" }
-          Write-Host "VERSION=$ver"
+          # 1) Installer EXE produced by build.py (libs/portable/rustdesk-<ver>-install.exe)
+          $installer = Get-ChildItem -Path "libs/portable" -Filter "rustdesk-*-install.exe" -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
-          # 1) Rename generated Setup EXE from build.py portable pack (if present)
-          $setup = Get-ChildItem -Path . -Filter "rustdesk-*-install.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($setup) {
-      $newSetup = "Mec-Dis-Soporte-Remoto-Setup-$ver.exe"
-      Move-Item $setup.FullName $newSetup -Force
-      Write-Host "Setup EXE => $newSetup"
-          } else {
-      Write-Host "WARN: rustdesk-*-install.exe not found (portable packer may have been skipped)."
+          if ($null -eq $installer) {
+            Write-Host "Installer not found under libs/portable."
+            Get-ChildItem -Path "libs/portable" -File | Select-Object Name,Length,LastWriteTime
+            throw "Installer EXE not generated"
           }
 
+          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+          $setupOut = Join-Path "dist" "Mec-Dis-Soporte-Remoto-Setup.exe"
+          Copy-Item $installer.FullName $setupOut -Force
+          Write-Host "Setup EXE: $setupOut"
+
           # 2) Portable ZIP from Flutter Release folder
-          $rel = "flutter\build\windows\x64\runner\Release"
-          if (-not (Test-Path $rel)) { throw "Missing release folder: $rel" }
+          $releaseDir = "flutter\build\windows\x64\runner\Release"
+          if (-not (Test-Path $releaseDir)) {
+            Write-Host "Release folder not found: $releaseDir"
+            Get-ChildItem -Path "flutter\build\windows" -Recurse -Depth 4 -ErrorAction SilentlyContinue | Select-Object FullName | Out-String | Write-Host
+            throw "Flutter Release output missing"
+          }
 
-          $zip = "Mec-Dis-Soporte-Remoto-Portable-$ver.zip"
-          if (Test-Path $zip) { Remove-Item $zip -Force }
-          Compress-Archive -Path "$rel\*" -DestinationPath $zip -Force
-          Write-Host "Portable ZIP => $zip"
+          $portableZip = Join-Path "dist" "Mec-Dis-Soporte-Remoto-Portable.zip"
+          if (Test-Path $portableZip) { Remove-Item $portableZip -Force }
+          Compress-Archive -Path (Join-Path $releaseDir "*") -DestinationPath $portableZip
+          Write-Host "Portable ZIP: $portableZip"
 
-      - name: Upload build artifacts
+      - name: Upload Mec-Dis artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-build
-          path: |
-            **\*.msi
-            **\*.exe
-            **\dist\**
-            **\build\**
-          if-no-files-found: warn
+          name: Mec-Dis-Windows
+          path: dist/*
