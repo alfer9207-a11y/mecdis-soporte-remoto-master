@@ -17,6 +17,7 @@ jobs:
       VCPKG_DISABLE_METRICS: "1"
       VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
       RUST_BACKTRACE: "1"
+      CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_DEBUG: "true"
 
     steps:
       - name: Checkout (with submodules + LFS)
@@ -65,35 +66,41 @@ jobs:
           }
           & C:\vcpkg\vcpkg.exe version
 
-      - name: Ensure Opus via vcpkg (classic mode ONLY) [STATIC]
+      - name: Ensure native deps via vcpkg (classic mode ONLY) [STATIC]
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $trip = $env:VCPKG_DEFAULT_TRIPLET
           if ([string]::IsNullOrWhiteSpace($trip)) { $trip = "x64-windows-static" }
 
-          $hdr = "C:\vcpkg\installed\$trip\include\opus\opus_multistream.h"
-          if (Test-Path $hdr) {
-            Write-Host "OK: Found $hdr"
-            exit 0
+          function Ensure-Port($port, $headerPath) {
+            $hdr = "C:\vcpkg\installed\$trip\include\$headerPath"
+            if (Test-Path $hdr) {
+              Write-Host "OK: $port header exists: $hdr"
+              return
+            }
+            $log = Join-Path $env:RUNNER_TEMP "vcpkg-$port.log"
+            Write-Host "Installing $port via vcpkg classic mode -> triplet=$trip"
+            & "C:\vcpkg\vcpkg.exe" install $port `
+              "--classic" `
+              "--x-install-root=C:\vcpkg\installed" `
+              "--triplet" $trip `
+              "--clean-after-build" 2>&1 | Tee-Object -FilePath $log
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "==== vcpkg-$port.log (tail) ===="
+              Get-Content $log -Tail 250
+              throw "vcpkg install failed: $port"
+            }
+            if (-not (Test-Path $hdr)) {
+              Write-Host "==== vcpkg-$port.log (tail) ===="
+              Get-Content $log -Tail 250
+              throw "Header still missing after install: $hdr"
+            }
           }
 
-          $log = Join-Path $env:RUNNER_TEMP "vcpkg-opus-classic.log"
-          & "C:\vcpkg\vcpkg.exe" install opus `
-            "--classic" `
-            "--x-install-root=C:\vcpkg\installed" `
-            "--triplet" $trip `
-            "--clean-after-build" 2>&1 | Tee-Object -FilePath $log
-
-          if ($LASTEXITCODE -ne 0) {
-            Get-Content $log -Tail 200
-            throw "vcpkg opus (classic) install failed"
-          }
-
-          if (-not (Test-Path $hdr)) {
-            Get-Content $log -Tail 200
-            throw "Opus headers still missing after classic install"
-          }
+          Ensure-Port "opus" "opus\opus_multistream.h"
+          Ensure-Port "libvpx" "vpx\vp8.h"
+          Ensure-Port "libyuv" "libyuv\convert.h"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -102,7 +109,6 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-
           New-Item -ItemType Directory -Force -Path "libs\portable\res" | Out-Null
           New-Item -ItemType Directory -Force -Path "libs\portable\src\res" | Out-Null
 
@@ -112,12 +118,10 @@ jobs:
           }
 
           $bytes = [System.Convert]::FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/6X2Z0sAAAAASUVORK5CYII=")
-
           $label1 = "libs\portable\res\label.png"
           if (-not (Test-Path $label1)) {
             [System.IO.File]::WriteAllBytes($label1, $bytes)
           }
-
           $label2 = "libs\portable\src\res\label.png"
           if (-not (Test-Path $label2)) {
             [System.IO.File]::WriteAllBytes($label2, $bytes)
@@ -148,15 +152,12 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-
           $installer = Get-ChildItem -Path "libs/portable" -Filter "rustdesk-*-install.exe" -File -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
-
           if ($null -eq $installer) {
             Get-ChildItem -Path "libs/portable" -File | Select-Object Name,Length,LastWriteTime
             throw "Installer EXE not generated"
           }
-
           New-Item -ItemType Directory -Force -Path "dist" | Out-Null
           Copy-Item $installer.FullName (Join-Path "dist" "Mec-Dis-Soporte-Remoto-Setup.exe") -Force
 
@@ -164,7 +165,6 @@ jobs:
           if (-not (Test-Path $releaseDir)) {
             throw "Flutter Release output missing: $releaseDir"
           }
-
           $portableZip = Join-Path "dist" "Mec-Dis-Soporte-Remoto-Portable.zip"
           if (Test-Path $portableZip) { Remove-Item $portableZip -Force }
           Compress-Archive -Path (Join-Path $releaseDir "*") -DestinationPath $portableZip
