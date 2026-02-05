@@ -78,41 +78,41 @@ jobs:
           }
           & "$V\bootstrap-vcpkg.bat" -disableMetrics
           & "$V\vcpkg.exe" version
-- name: Ensure Opus via vcpkg (classic mode ONLY) [NO-MANIFEST FIX]
-  shell: pwsh
-  run: |
-    $ErrorActionPreference = "Stop"
+      - name: Ensure Opus via vcpkg (classic mode ONLY) [NO-MANIFEST FIX]
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
 
-    $trip = $env:VCPKG_DEFAULT_TRIPLET
-    if ([string]::IsNullOrWhiteSpace($trip)) { $trip = "x64-windows" }
+          $trip = $env:VCPKG_DEFAULT_TRIPLET
+          if ([string]::IsNullOrWhiteSpace($trip)) { $trip = "x64-windows" }
 
-    $hdr = "C:\vcpkg\installed\$trip\include\opus\opus.h"
-    if (Test-Path $hdr) {
+          $hdr = "C:\vcpkg\installed\$trip\include\opus\opus.h"
+          if (Test-Path $hdr) {
       Write-Host "OK: Found $hdr"
       exit 0
-    }
+          }
 
-    $log = Join-Path $env:RUNNER_TEMP "vcpkg-opus-classic.log"
-    Write-Host "Installing ONLY opus via vcpkg classic mode -> triplet=$trip"
-    Write-Host "Log: $log"
+          $log = Join-Path $env:RUNNER_TEMP "vcpkg-opus-classic.log"
+          Write-Host "Installing ONLY opus via vcpkg classic mode -> triplet=$trip"
+          Write-Host "Log: $log"
 
-    & "C:\vcpkg\vcpkg.exe" install opus `
+          & "C:\vcpkg\vcpkg.exe" install opus `
       "--classic" `
       "--x-install-root=C:\vcpkg\installed" `
       "--triplet" $trip `
       "--clean-after-build" 2>&1 | Tee-Object -FilePath $log
 
-    if ($LASTEXITCODE -ne 0) {
+          if ($LASTEXITCODE -ne 0) {
       Write-Host "==== vcpkg-opus-classic.log (tail) ===="
       Get-Content $log -Tail 250
       throw "vcpkg opus (classic) install failed"
-    }
+          }
 
-    if (-not (Test-Path $hdr)) {
+          if (-not (Test-Path $hdr)) {
       Write-Host "==== vcpkg-opus-classic.log (tail) ===="
       Get-Content $log -Tail 250
       throw "Opus headers still missing after classic install"
-    }
+          }
 
       - name: Print key env (debug)
         shell: pwsh
@@ -125,10 +125,10 @@ jobs:
           cargo -V
 
 
-- name: Build rustdesk-portable-packer (for Setup EXE)
-  shell: pwsh
-  run: |
-    cargo build -p rustdesk-portable-packer --release
+      - name: Build rustdesk-portable-packer (for Setup EXE)
+        shell: pwsh
+        run: |
+          cargo build -p rustdesk-portable-packer --release
 
 
       - name: Build Windows (standard, no hwcodec, no vram)
@@ -137,35 +137,35 @@ jobs:
           python .\build.py --flutter
 
 
-- name: Create Mec-Dis portable ZIP + rename Setup EXE
-  shell: pwsh
-  run: |
-    $ErrorActionPreference = "Stop"
+      - name: Create Mec-Dis portable ZIP + rename Setup EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
 
-    # Get version from Cargo.toml (package version)
-    $cargo = Get-Content .\Cargo.toml -Raw
-    $m = [regex]::Match($cargo, '^\s*version\s*=\s*"(.*?)"\s*$', 'Multiline')
-    $ver = if ($m.Success) { $m.Groups[1].Value } else { "unknown" }
-    Write-Host "VERSION=$ver"
+          # Get version from Cargo.toml (package version)
+          $cargo = Get-Content .\Cargo.toml -Raw
+          $m = [regex]::Match($cargo, '^\s*version\s*=\s*"(.*?)"\s*$', 'Multiline')
+          $ver = if ($m.Success) { $m.Groups[1].Value } else { "unknown" }
+          Write-Host "VERSION=$ver"
 
-    # 1) Rename generated Setup EXE from build.py portable pack (if present)
-    $setup = Get-ChildItem -Path . -Filter "rustdesk-*-install.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($setup) {
+          # 1) Rename generated Setup EXE from build.py portable pack (if present)
+          $setup = Get-ChildItem -Path . -Filter "rustdesk-*-install.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($setup) {
       $newSetup = "Mec-Dis-Soporte-Remoto-Setup-$ver.exe"
       Move-Item $setup.FullName $newSetup -Force
       Write-Host "Setup EXE => $newSetup"
-    } else {
+          } else {
       Write-Host "WARN: rustdesk-*-install.exe not found (portable packer may have been skipped)."
-    }
+          }
 
-    # 2) Portable ZIP from Flutter Release folder
-    $rel = "flutter\build\windows\x64\runner\Release"
-    if (-not (Test-Path $rel)) { throw "Missing release folder: $rel" }
+          # 2) Portable ZIP from Flutter Release folder
+          $rel = "flutter\build\windows\x64\runner\Release"
+          if (-not (Test-Path $rel)) { throw "Missing release folder: $rel" }
 
-    $zip = "Mec-Dis-Soporte-Remoto-Portable-$ver.zip"
-    if (Test-Path $zip) { Remove-Item $zip -Force }
-    Compress-Archive -Path "$rel\*" -DestinationPath $zip -Force
-    Write-Host "Portable ZIP => $zip"
+          $zip = "Mec-Dis-Soporte-Remoto-Portable-$ver.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path "$rel\*" -DestinationPath $zip -Force
+          Write-Host "Portable ZIP => $zip"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
