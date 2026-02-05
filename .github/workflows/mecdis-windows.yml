@@ -1,4 +1,4 @@
-name: Mec-Dis Windows Build (Repaired vcpkg)
+name: Mec-Dis Windows Build (Opus No-Manifest, Stable)
 
 on:
   push:
@@ -12,6 +12,9 @@ jobs:
     env:
       VCPKG_ROOT: C:\vcpkg
       VCPKG_DEFAULT_TRIPLET: x64-windows
+      # Enable GitHub Actions binary cache for vcpkg (reduces random rebuild failures)
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+      VCPKG_DISABLE_METRICS: "1"
 
     steps:
       - name: Checkout
@@ -20,14 +23,21 @@ jobs:
       - name: Ensure vcpkg bootstrap
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           if (-not (Test-Path "C:\vcpkg\vcpkg.exe")) {
             git clone https://github.com/microsoft/vcpkg C:\vcpkg
             & C:\vcpkg\bootstrap-vcpkg.bat
           }
+          & C:\vcpkg\vcpkg.exe version
+          Write-Host "VCPKG_ROOT=$env:VCPKG_ROOT"
+          Write-Host "VCPKG_DEFAULT_TRIPLET=$env:VCPKG_DEFAULT_TRIPLET"
+          Write-Host "VCPKG_BINARY_SOURCES=$env:VCPKG_BINARY_SOURCES"
 
-      - name: Ensure Opus via vcpkg (manifest mode) [FIX]
+      - name: Ensure Opus via vcpkg (classic mode ONLY) [NO-MANIFEST FIX]
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+
           $trip = $env:VCPKG_DEFAULT_TRIPLET
           if ([string]::IsNullOrWhiteSpace($trip)) { $trip = "x64-windows" }
 
@@ -37,30 +47,28 @@ jobs:
             exit 0
           }
 
-          Write-Host "Installing vcpkg manifest deps (includes opus) -> triplet=$trip"
-          $log = Join-Path $env:RUNNER_TEMP "vcpkg-manifest.log"
+          $log = Join-Path $env:RUNNER_TEMP "vcpkg-opus-classic.log"
+          Write-Host "Installing ONLY opus via vcpkg classic mode -> triplet=$trip"
+          Write-Host "Log: $log"
 
-          Push-Location $env:GITHUB_WORKSPACE
-
-          & "C:\vcpkg\vcpkg.exe" install `
-            "--x-manifest-root=." `
+          # Force classic mode so vcpkg does NOT try to install the repo's vcpkg.json manifest (AV1/aom/etc.).
+          & "C:\vcpkg\vcpkg.exe" install opus `
+            "--classic" `
             "--x-install-root=C:\vcpkg\installed" `
             "--triplet" $trip `
             "--clean-after-build" 2>&1 | Tee-Object -FilePath $log
 
-          $code = $LASTEXITCODE
-          Pop-Location
-
-          if ($code -ne 0) {
-            Write-Host "==== vcpkg-manifest.log (tail) ===="
-            Get-Content $log -Tail 200
-            throw "vcpkg manifest install failed"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "==== vcpkg-opus-classic.log (tail) ===="
+            Get-Content $log -Tail 250
+            throw "vcpkg opus (classic) install failed"
           }
 
           if (-not (Test-Path $hdr)) {
-            Write-Host "==== vcpkg-manifest.log (tail) ===="
-            Get-Content $log -Tail 200
-            throw "Opus headers still missing after vcpkg manifest install"
+            Write-Host "==== vcpkg-opus-classic.log (tail) ===="
+            Get-Content $log -Tail 250
+            throw "Opus headers still missing after classic install"
           }
 
-      # Resto de tu pipeline (Flutter, Rust, packer, etc.) aquí
+      # TODO: Keep the rest of your real pipeline steps below (Flutter/Rust/packer).
+      # This patch only fixes the Opus/vcpkg instability.
