@@ -100,6 +100,7 @@ jobs:
 
           Ensure-Port "opus" "opus\opus_multistream.h"
           Ensure-Port "libvpx" "vpx\vp8.h"
+          Ensure-Port "aom" "aom\aom.h"
           Ensure-Port "libyuv" "libyuv\convert.h"
 
       - name: Install Rust toolchain
