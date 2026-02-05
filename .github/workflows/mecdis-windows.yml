@@ -15,6 +15,7 @@ jobs:
       VCPKG_ROOT: C:\vcpkg
       VCPKG_DEFAULT_TRIPLET: x64-windows-static
       RUST_BACKTRACE: "1"
+      VCPKG_DISABLE_METRICS: "1"
 
     steps:
       - name: Checkout (with submodules + LFS)
@@ -44,18 +45,52 @@ jobs:
           flutter pub get
           Pop-Location
 
-      # Keep your existing vcpkg bootstrap/install steps.
-      # This only ensures opus headers exist for magnum-opus.
+      - name: MSVC dev cmd (needed for vcpkg + native deps)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Cache vcpkg (installed + downloads)
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\vcpkg\installed
+            C:\vcpkg\packages
+            C:\vcpkg\downloads
+          key: vcpkg-${{ runner.os }}-${{ env.VCPKG_DEFAULT_TRIPLET }}-opus-v1
+
+      - name: Bootstrap vcpkg (if missing)
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "$env:VCPKG_ROOT\vcpkg.exe")) {
+            Write-Host "Cloning vcpkg into $env:VCPKG_ROOT ..."
+            git clone --depth 1 https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
+          }
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+
+      # Ensures opus headers exist for magnum-opus.
       - name: Ensure Opus via vcpkg (needed by magnum-opus)
         shell: pwsh
         run: |
-          $hdr = "C:\vcpkg\installed\x64-windows-static\include\opus\opus.h"
+          $trip = $env:VCPKG_DEFAULT_TRIPLET
+          $hdr = "$env:VCPKG_ROOT\installed\$trip\include\opus\opus.h"
           if (Test-Path $hdr) {
             Write-Host "OK: Found $hdr"
+            & "$env:VCPKG_ROOT\\vcpkg.exe" version
           } else {
-            Write-Host "Missing $hdr -> installing opus:x64-windows-static via vcpkg"
-            & "C:\vcpkg\vcpkg.exe" install opus:x64-windows-static --recurse
-            if ($LASTEXITCODE -ne 0) { throw "vcpkg opus install failed" }
+            Write-Host "Missing $hdr -> installing opus ($trip) via vcpkg"
+            $log = Join-Path $env:RUNNER_TEMP "vcpkg-opus.log"
+            for ($i=1; $i -le 3; $i++) {
+              Write-Host "vcpkg install attempt $i/3 ..."
+              & "$env:VCPKG_ROOT\vcpkg.exe" install "opus" "--triplet=$trip" --recurse --clean-after-build 2>&1 | Tee-Object -FilePath $log
+              if ($LASTEXITCODE -eq 0) { break }
+              Start-Sleep -Seconds 10
+            }
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "---- vcpkg-opus.log (tail) ----"
+              Get-Content $log -Tail 200
+              throw "vcpkg opus install failed"
+            }
             if (-not (Test-Path $hdr)) { throw "Opus headers still missing after vcpkg install" }
           }
 
