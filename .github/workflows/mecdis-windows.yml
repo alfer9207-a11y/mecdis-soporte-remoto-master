@@ -88,12 +88,16 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Prepare portable packer required assets (fix missing include_bytes files)
+      - name: Prepare portable packer required assets (fix missing include_bytes paths)
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
 
+          # Some forks reference resources from BOTH:
+          # - libs/portable/res/...
+          # - libs/portable/src/res/...
           New-Item -ItemType Directory -Force -Path "libs\portable\res" | Out-Null
+          New-Item -ItemType Directory -Force -Path "libs\portable\src\res" | Out-Null
 
           $dataBin = "libs\portable\data.bin"
           if (-not (Test-Path $dataBin)) {
@@ -101,11 +105,18 @@ jobs:
             [System.IO.File]::WriteAllBytes($dataBin, @())
           }
 
-          $labelPng = "libs\portable\res\label.png"
-          if (-not (Test-Path $labelPng)) {
-            Write-Host "Creating placeholder: $labelPng (1x1 png)"
-            $bytes = [System.Convert]::FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/6X2Z0sAAAAASUVORK5CYII=")
-            [System.IO.File]::WriteAllBytes($labelPng, $bytes)
+          $bytes = [System.Convert]::FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/6X2Z0sAAAAASUVORK5CYII=")
+
+          $label1 = "libs\portable\res\label.png"
+          if (-not (Test-Path $label1)) {
+            Write-Host "Creating placeholder: $label1 (1x1 png)"
+            [System.IO.File]::WriteAllBytes($label1, $bytes)
+          }
+
+          $label2 = "libs\portable\src\res\label.png"
+          if (-not (Test-Path $label2)) {
+            Write-Host "Creating placeholder: $label2 (1x1 png)"
+            [System.IO.File]::WriteAllBytes($label2, $bytes)
           }
 
           $metaToml = "libs\portable\app_metadata.toml"
@@ -121,6 +132,7 @@ jobs:
           Write-Host "Listing portable assets:"
           Get-ChildItem "libs\portable" -Force | Select-Object Name,Length
           Get-ChildItem "libs\portable\res" -Force | Select-Object Name,Length
+          Get-ChildItem "libs\portable\src\res" -Force | Select-Object Name,Length
 
       - name: Build portable packer (needed for installer exe)
         shell: pwsh
