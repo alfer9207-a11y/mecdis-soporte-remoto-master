@@ -102,6 +102,19 @@ jobs:
 
 
 
+
+- name: Force VCPKG_ROOT (avoid VS integrated vcpkg)
+
+  shell: pwsh
+
+  run: |
+
+    "VCPKG_ROOT=C:cpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+    "VCPKG_DEFAULT_TRIPLET=x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+    "VCPKG_DISABLE_METRICS=1" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       - name: Cache vcpkg (installed + downloads)
 
         uses: actions/cache@v4
@@ -122,23 +135,24 @@ jobs:
 
       - name: Bootstrap vcpkg (if missing)
 
-        shell: pwsh
+  shell: pwsh
 
-        run: |
+  run: |
 
-          if (-not (Test-Path "$env:VCPKG_ROOT\vcpkg.exe")) {
+    $root = "C:cpkg"
 
-            Write-Host "Cloning vcpkg into $env:VCPKG_ROOT ..."
+    if (-not (Test-Path "$rootcpkg.exe")) {
 
-            git clone --depth 1 https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
+      Write-Host "Cloning vcpkg into $root ..."
 
-          }
+      git clone --depth 1 https://github.com/microsoft/vcpkg "$root"
 
-          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+    }
 
+    & "$rootootstrap-vcpkg.bat" -disableMetrics
 
+    & "$rootcpkg.exe" version
 
-      
 
       # Ensures opus headers exist for magnum-opus.
 
