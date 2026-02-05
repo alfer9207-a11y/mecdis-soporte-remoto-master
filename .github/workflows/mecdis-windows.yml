@@ -1,74 +1,179 @@
-name: Mec-Dis Windows Build (Opus No-Manifest, Stable)
+name: build-windows
 
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   build-windows:
     runs-on: windows-latest
     env:
+      CI: "true"
+      FLUTTER_SUPPRESS_ANALYTICS: "true"
+      PUB_CACHE: ${{ github.workspace }}\.pub-cache
       VCPKG_ROOT: C:\vcpkg
       VCPKG_DEFAULT_TRIPLET: x64-windows
-      # Enable GitHub Actions binary cache for vcpkg (reduces random rebuild failures)
+      VCPKG_FEATURE_FLAGS: manifests,binarycaching
+      RUST_BACKTRACE: "1"
       VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
       VCPKG_DISABLE_METRICS: "1"
 
     steps:
-      - name: Checkout
+      - name: Checkout (with submodules + LFS)
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
 
-      - name: Ensure vcpkg bootstrap
+      - name: Install Flutter (with cache)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter sanity (doctor + precache + pub get)
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          if (-not (Test-Path "C:\vcpkg\vcpkg.exe")) {
-            git clone https://github.com/microsoft/vcpkg C:\vcpkg
-            & C:\vcpkg\bootstrap-vcpkg.bat
+          flutter --version
+          flutter config --no-analytics --no-cli-animations
+          for ($i=1; $i -le 3; $i++) {
+            flutter precache --windows
+            if ($LASTEXITCODE -eq 0) { break }
+            Start-Sleep -Seconds 10
           }
-          & C:\vcpkg\vcpkg.exe version
+          flutter doctor -v
+          Push-Location flutter
+          flutter pub get
+          Pop-Location
+
+      - name: MSVC dev cmd (needed for vcpkg + native deps)
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # Force VCPKG_ROOT AFTER MSVC dev cmd, because the MSVC toolchain can inject a VS-integrated vcpkg path.
+      - name: Force VCPKG_ROOT (avoid VS integrated vcpkg)
+        shell: pwsh
+        run: |
+          $V = "C:\vcpkg"
+          "VCPKG_ROOT=$V" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "VCPKG_DEFAULT_TRIPLET=x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "VCPKG_FEATURE_FLAGS=manifests,binarycaching" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Cache vcpkg (installed + downloads)
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\vcpkg\installed
+            C:\vcpkg\packages
+            C:\vcpkg\downloads
+          key: vcpkg-${{ runner.os }}-${{ env.VCPKG_DEFAULT_TRIPLET }}-opus
+
+      - name: Bootstrap vcpkg (if missing)
+        shell: pwsh
+        run: |
+          $V = "C:\vcpkg"
+          if (-not (Test-Path "$V\vcpkg.exe")) {
+            Write-Host "Cloning vcpkg into $V ..."
+            git clone --depth 1 https://github.com/microsoft/vcpkg "$V"
+          }
+          & "$V\bootstrap-vcpkg.bat" -disableMetrics
+          & "$V\vcpkg.exe" version
+- name: Ensure Opus via vcpkg (classic mode ONLY) [NO-MANIFEST FIX]
+  shell: pwsh
+  run: |
+    $ErrorActionPreference = "Stop"
+
+    $trip = $env:VCPKG_DEFAULT_TRIPLET
+    if ([string]::IsNullOrWhiteSpace($trip)) { $trip = "x64-windows" }
+
+    $hdr = "C:\vcpkg\installed\$trip\include\opus\opus.h"
+    if (Test-Path $hdr) {
+      Write-Host "OK: Found $hdr"
+      exit 0
+    }
+
+    $log = Join-Path $env:RUNNER_TEMP "vcpkg-opus-classic.log"
+    Write-Host "Installing ONLY opus via vcpkg classic mode -> triplet=$trip"
+    Write-Host "Log: $log"
+
+    & "C:\vcpkg\vcpkg.exe" install opus `
+      "--classic" `
+      "--x-install-root=C:\vcpkg\installed" `
+      "--triplet" $trip `
+      "--clean-after-build" 2>&1 | Tee-Object -FilePath $log
+
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host "==== vcpkg-opus-classic.log (tail) ===="
+      Get-Content $log -Tail 250
+      throw "vcpkg opus (classic) install failed"
+    }
+
+    if (-not (Test-Path $hdr)) {
+      Write-Host "==== vcpkg-opus-classic.log (tail) ===="
+      Get-Content $log -Tail 250
+      throw "Opus headers still missing after classic install"
+    }
+
+      - name: Print key env (debug)
+        shell: pwsh
+        run: |
           Write-Host "VCPKG_ROOT=$env:VCPKG_ROOT"
           Write-Host "VCPKG_DEFAULT_TRIPLET=$env:VCPKG_DEFAULT_TRIPLET"
-          Write-Host "VCPKG_BINARY_SOURCES=$env:VCPKG_BINARY_SOURCES"
+          where.exe cl.exe
+          cl.exe /Bv
+          rustc -V
+          cargo -V
 
-      - name: Ensure Opus via vcpkg (classic mode ONLY) [NO-MANIFEST FIX]
+
+- name: Build rustdesk-portable-packer (for Setup EXE)
+  shell: pwsh
+  run: |
+    cargo build -p rustdesk-portable-packer --release
+
+
+      - name: Build Windows (standard, no hwcodec, no vram)
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
+          python .\build.py --flutter
 
-          $trip = $env:VCPKG_DEFAULT_TRIPLET
-          if ([string]::IsNullOrWhiteSpace($trip)) { $trip = "x64-windows" }
 
-          $hdr = "C:\vcpkg\installed\$trip\include\opus\opus.h"
-          if (Test-Path $hdr) {
-            Write-Host "OK: Found $hdr"
-            exit 0
-          }
+- name: Create Mec-Dis portable ZIP + rename Setup EXE
+  shell: pwsh
+  run: |
+    $ErrorActionPreference = "Stop"
 
-          $log = Join-Path $env:RUNNER_TEMP "vcpkg-opus-classic.log"
-          Write-Host "Installing ONLY opus via vcpkg classic mode -> triplet=$trip"
-          Write-Host "Log: $log"
+    # Get version from Cargo.toml (package version)
+    $cargo = Get-Content .\Cargo.toml -Raw
+    $m = [regex]::Match($cargo, '^\s*version\s*=\s*"(.*?)"\s*$', 'Multiline')
+    $ver = if ($m.Success) { $m.Groups[1].Value } else { "unknown" }
+    Write-Host "VERSION=$ver"
 
-          # Force classic mode so vcpkg does NOT try to install the repo's vcpkg.json manifest (AV1/aom/etc.).
-          & "C:\vcpkg\vcpkg.exe" install opus `
-            "--classic" `
-            "--x-install-root=C:\vcpkg\installed" `
-            "--triplet" $trip `
-            "--clean-after-build" 2>&1 | Tee-Object -FilePath $log
+    # 1) Rename generated Setup EXE from build.py portable pack (if present)
+    $setup = Get-ChildItem -Path . -Filter "rustdesk-*-install.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($setup) {
+      $newSetup = "Mec-Dis-Soporte-Remoto-Setup-$ver.exe"
+      Move-Item $setup.FullName $newSetup -Force
+      Write-Host "Setup EXE => $newSetup"
+    } else {
+      Write-Host "WARN: rustdesk-*-install.exe not found (portable packer may have been skipped)."
+    }
 
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "==== vcpkg-opus-classic.log (tail) ===="
-            Get-Content $log -Tail 250
-            throw "vcpkg opus (classic) install failed"
-          }
+    # 2) Portable ZIP from Flutter Release folder
+    $rel = "flutter\build\windows\x64\runner\Release"
+    if (-not (Test-Path $rel)) { throw "Missing release folder: $rel" }
 
-          if (-not (Test-Path $hdr)) {
-            Write-Host "==== vcpkg-opus-classic.log (tail) ===="
-            Get-Content $log -Tail 250
-            throw "Opus headers still missing after classic install"
-          }
+    $zip = "Mec-Dis-Soporte-Remoto-Portable-$ver.zip"
+    if (Test-Path $zip) { Remove-Item $zip -Force }
+    Compress-Archive -Path "$rel\*" -DestinationPath $zip -Force
+    Write-Host "Portable ZIP => $zip"
 
-      # TODO: Keep the rest of your real pipeline steps below (Flutter/Rust/packer).
-      # This patch only fixes the Opus/vcpkg instability.
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: |
+            **\*.msi
+            **\*.exe
+            **\dist\**
+            **\build\**
+          if-no-files-found: warn
