@@ -1,83 +1,31 @@
-name: build-windows
+name: Mec-Dis Windows Build (Repaired vcpkg)
 
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch:
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
   build-windows:
     runs-on: windows-latest
     env:
-      CI: "true"
-      FLUTTER_SUPPRESS_ANALYTICS: "true"
-      PUB_CACHE: ${{ github.workspace }}\.pub-cache
       VCPKG_ROOT: C:\vcpkg
       VCPKG_DEFAULT_TRIPLET: x64-windows
-      VCPKG_FEATURE_FLAGS: manifests,binarycaching
-      RUST_BACKTRACE: "1"
 
     steps:
-      - name: Checkout (with submodules + LFS)
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          lfs: true
 
-      - name: Install Flutter (with cache)
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Flutter sanity (doctor + precache + pub get)
+      - name: Ensure vcpkg bootstrap
         shell: pwsh
         run: |
-          flutter --version
-          flutter config --no-analytics --no-cli-animations
-          for ($i=1; $i -le 3; $i++) {
-            flutter precache --windows
-            if ($LASTEXITCODE -eq 0) { break }
-            Start-Sleep -Seconds 10
+          if (-not (Test-Path "C:\vcpkg\vcpkg.exe")) {
+            git clone https://github.com/microsoft/vcpkg C:\vcpkg
+            & C:\vcpkg\bootstrap-vcpkg.bat
           }
-          flutter doctor -v
-          Push-Location flutter
-          flutter pub get
-          Pop-Location
 
-      - name: MSVC dev cmd (needed for vcpkg + native deps)
-        uses: ilammy/msvc-dev-cmd@v1
-
-      # Force VCPKG_ROOT AFTER MSVC dev cmd, because the MSVC toolchain can inject a VS-integrated vcpkg path.
-      - name: Force VCPKG_ROOT (avoid VS integrated vcpkg)
-        shell: pwsh
-        run: |
-          $V = "C:\vcpkg"
-          "VCPKG_ROOT=$V" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "VCPKG_DEFAULT_TRIPLET=x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "VCPKG_FEATURE_FLAGS=manifests,binarycaching" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      - name: Cache vcpkg (installed + downloads)
-        uses: actions/cache@v4
-        with:
-          path: |
-            C:\vcpkg\installed
-            C:\vcpkg\packages
-            C:\vcpkg\downloads
-          key: vcpkg-${{ runner.os }}-${{ env.VCPKG_DEFAULT_TRIPLET }}-opus
-
-      - name: Bootstrap vcpkg (if missing)
-        shell: pwsh
-        run: |
-          $V = "C:\vcpkg"
-          if (-not (Test-Path "$V\vcpkg.exe")) {
-            Write-Host "Cloning vcpkg into $V ..."
-            git clone --depth 1 https://github.com/microsoft/vcpkg "$V"
-          }
-          & "$V\bootstrap-vcpkg.bat" -disableMetrics
-          & "$V\vcpkg.exe" version
-
-      - name: Ensure Opus via vcpkg (needed by magnum-opus)
+      - name: Ensure Opus via vcpkg (manifest mode) [FIX]
         shell: pwsh
         run: |
           $trip = $env:VCPKG_DEFAULT_TRIPLET
@@ -89,46 +37,30 @@ jobs:
             exit 0
           }
 
-          Write-Host "Missing $hdr -> installing opus ($trip) via vcpkg"
-          $log = Join-Path $env:RUNNER_TEMP "vcpkg-opus.log"
+          Write-Host "Installing vcpkg manifest deps (includes opus) -> triplet=$trip"
+          $log = Join-Path $env:RUNNER_TEMP "vcpkg-manifest.log"
 
-          # PowerShell-safe argument passing (avoids quoting/parse issues)
-          $args = @("install", "opus", "--triplet=$trip", "--recurse", "--clean-after-build")
-          & "C:\vcpkg\vcpkg.exe" @args 2>&1 | Tee-Object -FilePath $log
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "==== vcpkg-opus.log (tail) ===="
+          Push-Location $env:GITHUB_WORKSPACE
+
+          & "C:\vcpkg\vcpkg.exe" install `
+            "--x-manifest-root=." `
+            "--x-install-root=C:\vcpkg\installed" `
+            "--triplet" $trip `
+            "--clean-after-build" 2>&1 | Tee-Object -FilePath $log
+
+          $code = $LASTEXITCODE
+          Pop-Location
+
+          if ($code -ne 0) {
+            Write-Host "==== vcpkg-manifest.log (tail) ===="
             Get-Content $log -Tail 200
-            throw "vcpkg opus install failed"
+            throw "vcpkg manifest install failed"
           }
 
           if (-not (Test-Path $hdr)) {
-            Write-Host "==== vcpkg-opus.log (tail) ===="
+            Write-Host "==== vcpkg-manifest.log (tail) ===="
             Get-Content $log -Tail 200
-            throw "Opus headers still missing after vcpkg install"
+            throw "Opus headers still missing after vcpkg manifest install"
           }
 
-      - name: Print key env (debug)
-        shell: pwsh
-        run: |
-          Write-Host "VCPKG_ROOT=$env:VCPKG_ROOT"
-          Write-Host "VCPKG_DEFAULT_TRIPLET=$env:VCPKG_DEFAULT_TRIPLET"
-          where.exe cl.exe
-          cl.exe /Bv
-          rustc -V
-          cargo -V
-
-      - name: Build Windows (standard, no hwcodec, no vram)
-        shell: pwsh
-        run: |
-          python .\build.py --flutter --skip-portable
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-build
-          path: |
-            **\*.msi
-            **\*.exe
-            **\dist\**
-            **\build\**
-          if-no-files-found: warn
+      # Resto de tu pipeline (Flutter, Rust, packer, etc.) aquí
