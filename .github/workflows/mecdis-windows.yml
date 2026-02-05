@@ -93,13 +93,11 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          # Required by include_bytes!() in libs/portable/src/*.rs
           New-Item -ItemType Directory -Force -Path "libs\portable\res" | Out-Null
 
           $dataBin = "libs\portable\data.bin"
           if (-not (Test-Path $dataBin)) {
             Write-Host "Creating placeholder: $dataBin"
-            # empty file is fine
             [System.IO.File]::WriteAllBytes($dataBin, @())
           }
 
@@ -113,11 +111,11 @@ jobs:
           $metaToml = "libs\portable\app_metadata.toml"
           if (-not (Test-Path $metaToml)) {
             Write-Host "Creating placeholder: $metaToml"
-            @"
-name = "Mec-Dis Soporte Remoto"
-publisher = "Mec-Dis Computadoras"
-homepage = "https://mec-dis.com"
-"@ | Set-Content -Path $metaToml -Encoding UTF8
+            @(
+              'name = "Mec-Dis Soporte Remoto"',
+              'publisher = "Mec-Dis Computadoras"',
+              'homepage = "https://mec-dis.com"'
+            ) | Set-Content -Path $metaToml -Encoding UTF8
           }
 
           Write-Host "Listing portable assets:"
