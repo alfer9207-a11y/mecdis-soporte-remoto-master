@@ -121,7 +121,7 @@ impl BinaryReader {
         (parsed, executable)
     }
 
-    #[cfg(linux)]
+    #[cfg(target_os = "linux")]
     pub fn configure_permission(&self, prefix: &Path) {
         use std::os::unix::prelude::PermissionsExt;
 
