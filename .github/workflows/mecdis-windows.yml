@@ -12,10 +12,13 @@ jobs:
       CI: "true"
       FLUTTER_SUPPRESS_ANALYTICS: "true"
       PUB_CACHE: ${{ github.workspace }}\.pub-cache
+
+      # vcpkg: always use our own copy
       VCPKG_ROOT: C:\vcpkg
       VCPKG_DEFAULT_TRIPLET: x64-windows-static
       VCPKG_DISABLE_METRICS: "1"
       VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+
       RUST_BACKTRACE: "1"
       CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_DEBUG: "true"
 
@@ -26,24 +29,31 @@ jobs:
           submodules: recursive
           lfs: true
 
-      - name: Install Flutter 3.22.3 (stable) + cache
+      # FIX: extended_text 14.x requires Dart SDK >= 3.5.0
+      # Dart 3.5.x ships with Flutter 3.24.x (stable)
+      - name: Install Flutter 3.24.5 (stable) + cache
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.22.3"
+          flutter-version: "3.24.5"
           channel: stable
           cache: true
 
-      - name: Flutter sanity (telemetry off + precache + pub get)
+      - name: Flutter sanity (analytics off + precache + pub get)
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          flutter --disable-telemetry
+
+          # Keep it compatible across Flutter versions:
+          # - do NOT use "flutter --disable-telemetry" (not available in some versions)
+          # - do NOT use "--no-cli-animations" (breaks older tools)
           flutter config --no-analytics
+
           for ($i=1; $i -le 3; $i++) {
             flutter precache --windows
             if ($LASTEXITCODE -eq 0) { break }
             Start-Sleep -Seconds 10
           }
+
           Push-Location flutter
           flutter pub get
           Pop-Location
@@ -63,9 +73,7 @@ jobs:
           "VCPKG_DEFAULT_TRIPLET=x64-windows-static" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "VCPKG_TARGET_TRIPLET=x64-windows-static" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-          Write-Host "VCPKG_ROOT now: $env:VCPKG_ROOT"
-
-      - name: Bootstrap vcpkg (if missing) [NEVER USE $env:VCPKG_ROOT HERE]
+      - name: Bootstrap vcpkg (if missing) [C:\vcpkg only]
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
