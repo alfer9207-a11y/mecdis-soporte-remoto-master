@@ -1,184 +1,262 @@
-name: Mec-Dis Windows Build (Installer + Portable)
+name: build-windows
+
+
 
 on:
+
   push:
-    branches: ["main"]
+
+    branches: [ "main" ]
+
   workflow_dispatch:
 
+
+
 jobs:
+
   build-windows:
+
     runs-on: windows-latest
+
     env:
+
       CI: "true"
+
       FLUTTER_SUPPRESS_ANALYTICS: "true"
+
       PUB_CACHE: ${{ github.workspace }}\.pub-cache
 
       VCPKG_ROOT: C:\vcpkg
-      VCPKG_DEFAULT_TRIPLET: x64-windows-static
-      VCPKG_DISABLE_METRICS: "1"
-      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+
+      VCPKG_DEFAULT_TRIPLET: x64-windows
 
       RUST_BACKTRACE: "1"
-      CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_DEBUG: "true"
+
+      VCPKG_DISABLE_METRICS: "1"
+
+
 
     steps:
+
       - name: Checkout (with submodules + LFS)
+
         uses: actions/checkout@v4
+
         with:
+
           submodules: recursive
+
           lfs: true
 
-      - name: Install Flutter (pinned)
+
+
+      - name: Install Flutter (with cache)
+
         uses: subosito/flutter-action@v2
+
         with:
-          flutter-version: "3.13.9"
+
+          channel: stable
+
           cache: true
 
-      - name: Flutter sanity (precache + pub get)
+
+
+      - name: Flutter sanity (doctor + precache + pub get)
+
         shell: pwsh
+
         run: |
-          $ErrorActionPreference = "Stop"
+
+          flutter --version
+
           flutter config --no-analytics --no-cli-animations
+
           for ($i=1; $i -le 3; $i++) {
+
             flutter precache --windows
+
             if ($LASTEXITCODE -eq 0) { break }
+
             Start-Sleep -Seconds 10
+
           }
+
+          flutter doctor -v
+
           Push-Location flutter
+
           flutter pub get
+
           Pop-Location
 
+
+
       - name: MSVC dev cmd (needed for vcpkg + native deps)
+
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Force vcpkg env (override VS integrated vcpkg)
-        shell: pwsh
-        run: |
-          "VCPKG_ROOT=C:\vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "VCPKG_DEFAULT_TRIPLET=x64-windows-static" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "VCPKG_TARGET_TRIPLET=x64-windows-static" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        with:
+
+          arch: x64
+
+
+
+      - name: Cache vcpkg (installed + downloads)
+
+        uses: actions/cache@v4
+
+        with:
+
+          path: |
+
+            C:\vcpkg\installed
+
+            C:\vcpkg\packages
+
+            C:\vcpkg\downloads
+
+          key: vcpkg-${{ runner.os }}-${{ env.VCPKG_DEFAULT_TRIPLET }}-opus-v1
+
+
 
       - name: Bootstrap vcpkg (if missing)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          if (-not (Test-Path "C:\vcpkg\vcpkg.exe")) {
-            git clone https://github.com/microsoft/vcpkg C:\vcpkg
-            & C:\vcpkg\bootstrap-vcpkg.bat
-          }
-          & C:\vcpkg\vcpkg.exe version
 
-      - name: Ensure native deps via vcpkg (classic mode ONLY) [STATIC]
         shell: pwsh
+
         run: |
-          $ErrorActionPreference = "Stop"
+
+          if (-not (Test-Path "$env:VCPKG_ROOT\vcpkg.exe")) {
+
+            Write-Host "Cloning vcpkg into $env:VCPKG_ROOT ..."
+
+            git clone --depth 1 https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT"
+
+          }
+
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+
+
+
+      
+
+      # Ensures opus headers exist for magnum-opus.
+
+      - name: Ensure Opus via vcpkg (needed by magnum-opus)
+
+        shell: pwsh
+
+        run: |
+
           $trip = $env:VCPKG_DEFAULT_TRIPLET
-          if ([string]::IsNullOrWhiteSpace($trip)) { $trip = "x64-windows-static" }
 
-          function Ensure-Port($port, $headerPath) {
-            $hdr = "C:\vcpkg\installed\$trip\include\$headerPath"
-            if (Test-Path $hdr) {
-              Write-Host "OK: $port header exists: $hdr"
-              return
-            }
-            $log = Join-Path $env:RUNNER_TEMP "vcpkg-$port.log"
-            Write-Host "Installing $port via vcpkg classic mode -> triplet=$trip"
-            & "C:\vcpkg\vcpkg.exe" install $port `
-              "--classic" `
-              "--x-install-root=C:\vcpkg\installed" `
-              "--triplet" $trip `
-              "--clean-after-build" 2>&1 | Tee-Object -FilePath $log
+          if ([string]::IsNullOrWhiteSpace($trip)) { $trip = "x64-windows" }
 
-            if ($LASTEXITCODE -ne 0) {
-              Write-Host "==== vcpkg-$port.log (tail) ===="
-              Get-Content $log -Tail 250
-              throw "vcpkg install failed: $port"
-            }
+      
 
-            if (-not (Test-Path $hdr)) {
-              Write-Host "==== vcpkg-$port.log (tail) ===="
-              Get-Content $log -Tail 250
-              throw "Header still missing after install: $hdr"
-            }
+          $hdr = "$env:VCPKG_ROOT\installed\$trip\include\opus\opus.h"
+
+          if (Test-Path $hdr) {
+
+            Write-Host "OK: Found $hdr"
+
+            & "$env:VCPKG_ROOT\vcpkg.exe" version
+
+            exit 0
+
           }
 
-          Ensure-Port "opus" "opus\opus_multistream.h"
-          Ensure-Port "libvpx" "vpx\vp8.h"
-          Ensure-Port "aom" "aom\aom.h"
-          Ensure-Port "libyuv" "libyuv\convert.h"
+      
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+          Write-Host "Missing $hdr -> installing opus ($trip) via vcpkg"
 
-      - name: Prepare portable packer required assets (fix missing include_bytes files)
+          $log = Join-Path $env:RUNNER_TEMP "vcpkg-opus.log"
+
+      
+
+          # PowerShell-safe argument passing (avoids quoting/parse issues)
+
+          $args = @("install", "opus", "--triplet=$trip", "--recurse", "--clean-after-build")
+
+      
+
+          for ($i=1; $i -le 3; $i++) {
+
+            Write-Host "vcpkg install attempt $i/3 ..."
+
+            & "$env:VCPKG_ROOT\vcpkg.exe" @args 2>&1 | Tee-Object -FilePath $log
+
+            if ($LASTEXITCODE -eq 0) { break }
+
+            Start-Sleep -Seconds 10
+
+          }
+
+      
+
+          if ($LASTEXITCODE -ne 0) {
+
+            Write-Host "---- vcpkg-opus.log (tail) ----"
+
+            Get-Content $log -Tail 200
+
+            throw "vcpkg opus install failed"
+
+          }
+
+      
+
+          if (-not (Test-Path $hdr)) {
+
+            throw "Opus headers still missing after vcpkg install"
+
+          }
+
+      
+
+      - name: Print key env (debug)
+
         shell: pwsh
+
         run: |
-          $ErrorActionPreference = "Stop"
-          New-Item -ItemType Directory -Force -Path "libs\portable\res" | Out-Null
-          New-Item -ItemType Directory -Force -Path "libs\portable\src\res" | Out-Null
 
-          $dataBin = "libs\portable\data.bin"
-          if (-not (Test-Path $dataBin)) {
-            [System.IO.File]::WriteAllBytes($dataBin, @())
-          }
+          Write-Host "VCPKG_ROOT=$env:VCPKG_ROOT"
 
-          $bytes = [System.Convert]::FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/6X2Z0sAAAAASUVORK5CYII=")
-          $label1 = "libs\portable\res\label.png"
-          if (-not (Test-Path $label1)) {
-            [System.IO.File]::WriteAllBytes($label1, $bytes)
-          }
-          $label2 = "libs\portable\src\res\label.png"
-          if (-not (Test-Path $label2)) {
-            [System.IO.File]::WriteAllBytes($label2, $bytes)
-          }
+          Write-Host "VCPKG_DEFAULT_TRIPLET=$env:VCPKG_DEFAULT_TRIPLET"
 
-          $metaToml = "libs\portable\app_metadata.toml"
-          if (-not (Test-Path $metaToml)) {
-            @(
-              'name = "Mec-Dis Soporte Remoto"',
-              'publisher = "Mec-Dis Computadoras"',
-              'homepage = "https://mec-dis.com"'
-            ) | Set-Content -Path $metaToml -Encoding UTF8
-          }
+          rustc -V
 
-      - name: Build portable packer (needed for installer exe)
+          cargo -V
+
+
+
+      - name: Build Windows (standard, no hwcodec, no vram)
+
         shell: pwsh
+
         run: |
-          $ErrorActionPreference = "Stop"
-          cargo build -p rustdesk-portable-packer --release
 
-      - name: Build Mec-Dis (Flutter) + create Installer EXE
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          python build.py --flutter --portable
+          python .\build.py --flutter --skip-portable
 
-      - name: Prepare Mec-Dis artifacts (Setup EXE + Portable ZIP)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $installer = Get-ChildItem -Path "libs/portable" -Filter "rustdesk-*-install.exe" -File -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
-          if ($null -eq $installer) {
-            Get-ChildItem -Path "libs/portable" -File | Select-Object Name,Length,LastWriteTime
-            throw "Installer EXE not generated"
-          }
 
-          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
-          Copy-Item $installer.FullName (Join-Path "dist" "Mec-Dis-Soporte-Remoto-Setup.exe") -Force
+      - name: Upload build artifacts
 
-          $releaseDir = "flutter\build\windows\x64\runner\Release"
-          if (-not (Test-Path $releaseDir)) {
-            throw "Flutter Release output missing: $releaseDir"
-          }
-
-          $portableZip = Join-Path "dist" "Mec-Dis-Soporte-Remoto-Portable.zip"
-          if (Test-Path $portableZip) { Remove-Item $portableZip -Force }
-          Compress-Archive -Path (Join-Path $releaseDir "*") -DestinationPath $portableZip
-
-      - name: Upload Mec-Dis artifacts
         uses: actions/upload-artifact@v4
+
         with:
-          name: Mec-Dis-Windows
-          path: dist/*
+
+          name: windows-build
+
+          path: |
+
+            **\*.msi
+
+            **\*.exe
+
+            **\dist\**
+
+            **\build\**
+
+          if-no-files-found: warn
+
