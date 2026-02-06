@@ -12,10 +12,12 @@ jobs:
       CI: "true"
       FLUTTER_SUPPRESS_ANALYTICS: "true"
       PUB_CACHE: ${{ github.workspace }}\.pub-cache
+
       VCPKG_ROOT: C:\vcpkg
       VCPKG_DEFAULT_TRIPLET: x64-windows-static
       VCPKG_DISABLE_METRICS: "1"
       VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+
       RUST_BACKTRACE: "1"
       CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_DEBUG: "true"
 
@@ -26,10 +28,10 @@ jobs:
           submodules: recursive
           lfs: true
 
-      - name: Install Flutter (with cache)
+      - name: Install Flutter (pinned)
         uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: "3.13.9"
           cache: true
 
       - name: Flutter sanity (precache + pub get)
@@ -86,11 +88,13 @@ jobs:
               "--x-install-root=C:\vcpkg\installed" `
               "--triplet" $trip `
               "--clean-after-build" 2>&1 | Tee-Object -FilePath $log
+
             if ($LASTEXITCODE -ne 0) {
               Write-Host "==== vcpkg-$port.log (tail) ===="
               Get-Content $log -Tail 250
               throw "vcpkg install failed: $port"
             }
+
             if (-not (Test-Path $hdr)) {
               Write-Host "==== vcpkg-$port.log (tail) ===="
               Get-Content $log -Tail 250
@@ -155,10 +159,12 @@ jobs:
           $ErrorActionPreference = "Stop"
           $installer = Get-ChildItem -Path "libs/portable" -Filter "rustdesk-*-install.exe" -File -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
+
           if ($null -eq $installer) {
             Get-ChildItem -Path "libs/portable" -File | Select-Object Name,Length,LastWriteTime
             throw "Installer EXE not generated"
           }
+
           New-Item -ItemType Directory -Force -Path "dist" | Out-Null
           Copy-Item $installer.FullName (Join-Path "dist" "Mec-Dis-Soporte-Remoto-Setup.exe") -Force
 
@@ -166,6 +172,7 @@ jobs:
           if (-not (Test-Path $releaseDir)) {
             throw "Flutter Release output missing: $releaseDir"
           }
+
           $portableZip = Join-Path "dist" "Mec-Dis-Soporte-Remoto-Portable.zip"
           if (Test-Path $portableZip) { Remove-Item $portableZip -Force }
           Compress-Archive -Path (Join-Path $releaseDir "*") -DestinationPath $portableZip
