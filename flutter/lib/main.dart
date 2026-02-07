@@ -36,10 +36,49 @@ import 'package:flutter_hbb/plugin/handlers.dart'
 int? kWindowId;
 WindowType? kWindowType;
 late List<String> kBootArgs;
+/// Build-time or runtime switch to disable the RustDesk backend.
+/// - Build-time: flutter build ... --dart-define=MEC_DISABLE_BACKEND=true
+/// - Runtime (portable test): set MEC_DISABLE_BACKEND=1 before launching.
+bool get mecDisableBackend {
+  const fromDefine = bool.fromEnvironment('MEC_DISABLE_BACKEND', defaultValue: false);
+  final fromEnv = Platform.environment['MEC_DISABLE_BACKEND'] == '1';
+  return fromDefine || fromEnv;
+}
+
+class MecNoBackendTestApp extends StatelessWidget {
+  const MecNoBackendTestApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Mec-Dis Soporte Remoto (TEST)',
+      home: Scaffold(
+        appBar: AppBar(
+          title: const Text('Mec-Dis Soporte Remoto'),
+        ),
+        body: const Center(
+          child: Text(
+            'TEST: Flutter OK (sin backend)\n\n'
+            'Si ves esta pantalla, el “pantallazo blanco” viene del backend (libmecdis.dll).',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 Future<void> main(List<String> args) async {
   earlyAssert();
   WidgetsFlutterBinding.ensureInitialized();
+
+
+if (mecDisableBackend) {
+  runApp(const MecNoBackendTestApp());
+  return;
+}
+
 
   debugPrint("launch args: $args");
   kBootArgs = List.from(args);

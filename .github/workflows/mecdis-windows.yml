@@ -1,4 +1,4 @@
-name: Mec-Dis Windows Build (Installer + Portable)
+name: Mec-Dis Windows Build (Portable EXE + ZIP)
 
 on:
   push:
@@ -21,6 +21,9 @@ jobs:
 
       RUST_BACKTRACE: "1"
       CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_DEBUG: "true"
+      # Speed up CI builds (keep correctness; disable heavy release LTO in CI)
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
 
     steps:
       - name: Checkout (with submodules + LFS)
@@ -144,40 +147,49 @@ jobs:
             ) | Set-Content -Path $metaToml -Encoding UTF8
           }
 
-      - name: Build portable packer (needed for installer exe)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          cargo build -p rustdesk-portable-packer --release
 
-      - name: Build Mec-Dis (Flutter) + create Installer EXE
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          python build.py --flutter --portable
+- name: Build Mec-Dis (Flutter) [PORTABLE ONLY]
+  shell: pwsh
+  run: |
+    $ErrorActionPreference = "Stop"
+    python build.py --flutter
 
-      - name: Prepare Mec-Dis artifacts (Setup EXE + Portable ZIP)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $installer = Get-ChildItem -Path "libs/portable" -Filter "rustdesk-*-install.exe" -File -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if ($null -eq $installer) {
-            Get-ChildItem -Path "libs/portable" -File | Select-Object Name,Length,LastWriteTime
-            throw "Installer EXE not generated"
-          }
-          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
-          Copy-Item $installer.FullName (Join-Path "dist" "Mec-Dis-Soporte-Remoto-Setup.exe") -Force
+- name: Prepare Mec-Dis artifacts (Portable EXE + Portable ZIP)
+  shell: pwsh
+  run: |
+    $ErrorActionPreference = "Stop"
+    New-Item -ItemType Directory -Force -Path "dist" | Out-Null
 
-          $releaseDir = "flutter\build\windows\x64\runner\Release"
-          if (-not (Test-Path $releaseDir)) { throw "Flutter Release output missing: $releaseDir" }
+    $releaseDir = "flutter\build\windows\x64\runner\Release"
+    if (-not (Test-Path $releaseDir)) { throw "Flutter Release output missing: $releaseDir" }
 
-          $portableZip = Join-Path "dist" "Mec-Dis-Soporte-Remoto-Portable.zip"
-          if (Test-Path $portableZip) { Remove-Item $portableZip -Force }
-          Compress-Archive -Path (Join-Path $releaseDir "*") -DestinationPath $portableZip
+    # Copy full portable folder
+    $portableDir = Join-Path "dist" "Mec-Dis-Soporte-Remoto-Portable"
+    if (Test-Path $portableDir) { Remove-Item $portableDir -Recurse -Force }
+    Copy-Item -Path $releaseDir -Destination $portableDir -Recurse -Force
 
+    # Rename main exe inside portable folder (keep only one)
+    $exe1 = Join-Path $portableDir "mecdis-soporte-remoto.exe"
+    $exe2 = Join-Path $portableDir "Mec-Dis-Soporte-Remoto.exe"
+    $targetExe = Join-Path $portableDir "Mec-Dis-Soporte-Remoto.exe"
+    if (Test-Path $exe1) { Rename-Item -Path $exe1 -NewName "Mec-Dis-Soporte-Remoto.exe" -Force }
+    elseif (Test-Path $exe2) { }
+    else {
+      # fallback: take any .exe in release dir
+      $anyExe = Get-ChildItem -Path $portableDir -Filter "*.exe" -File | Select-Object -First 1
+      if ($null -eq $anyExe) { throw "No EXE found in portable folder" }
+      Rename-Item -Path $anyExe.FullName -NewName "Mec-Dis-Soporte-Remoto.exe" -Force
+    }
+
+    # Export the EXE as a standalone artifact (optional convenience)
+    Copy-Item -Path (Join-Path $portableDir "Mec-Dis-Soporte-Remoto.exe") -Destination (Join-Path "dist" "Mec-Dis-Soporte-Remoto.exe") -Force
+
+    # Create portable zip containing the folder
+    $portableZip = Join-Path "dist" "Mec-Dis-Soporte-Remoto-Portable.zip"
+    if (Test-Path $portableZip) { Remove-Item $portableZip -Force }
+    Compress-Archive -Path $portableDir -DestinationPath $portableZip
       - name: Upload Mec-Dis artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Mec-Dis-Windows
+          name: Mec-Dis-Portable-Windows
           path: dist/*

@@ -1,0 +1,19 @@
+Mec-Dis Soporte Remoto — Parche Instalador + Portable (Windows)
+
+Incluye:
+1) Icono Mec-Dis (reemplaza): flutter/windows/runner/resources/app_icon.ico
+2) Workflow CI actualizado: .github/workflows/mecdis-windows.yml
+   - vcpkg opus en classic mode (sin manifest/AV1)
+   - build rustdesk-portable-packer
+   - build.py --flutter (con pack)
+   - genera:
+     Mec-Dis-Soporte-Remoto-Setup-<version>.exe
+     Mec-Dis-Soporte-Remoto-Portable-<version>.zip
+   - sube artifacts
+
+3) (Opcional) Inno Setup script: scripts/windows/mecdis_setup.iss
+
+Cómo aplicar:
+- Copia las carpetas de este ZIP encima de tu repo, reemplazando archivos.
+- Commit + push.
+- Descarga los artifacts en GitHub Actions.
