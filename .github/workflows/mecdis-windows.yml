@@ -2,8 +2,16 @@ name: Mec-Dis Windows Build (Installer + Portable)
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "master"]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - ".github/ISSUE_TEMPLATE/**"
   workflow_dispatch:
+
+concurrency:
+  group: mecdis-windows-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-windows:
@@ -37,6 +45,14 @@ jobs:
           flutter-version: "3.24.5"
           channel: stable
           cache: true
+
+- name: Cache Flutter PUB (workspace PUB_CACHE)
+  uses: actions/cache@v4
+  with:
+    path: ${{ env.PUB_CACHE }}
+    key: ${{ runner.os }}-pub-${{ hashFiles('flutter/pubspec.lock') }}
+    restore-keys: |
+      ${{ runner.os }}-pub-
 
       - name: Flutter sanity (analytics off + precache + pub get)
         shell: pwsh
@@ -121,6 +137,18 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+
+- name: Cache Cargo (registry + git + target)
+  uses: actions/cache@v4
+  with:
+    path: |
+      ~\.cargo\registry
+      ~\.cargo\git
+      target
+    key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    restore-keys: |
+      ${{ runner.os }}-cargo-
 
       - name: Prepare portable packer required assets
         shell: pwsh
