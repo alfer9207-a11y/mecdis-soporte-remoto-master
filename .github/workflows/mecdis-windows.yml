@@ -14,6 +14,8 @@ jobs:
       VCPKG_BINARY_SOURCES: clear;x-gha,readwrite
       VCPKG_INSTALLATION_ROOT: C:\vcpkg
 
+      VCPKG_ROOT: C:\vcpkg
+      VCPKG_DEFAULT_TRIPLET: x64-windows
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,7 +41,7 @@ jobs:
           }
           cd $Env:VCPKG_INSTALLATION_ROOT
           .\bootstrap-vcpkg.bat
-          .\vcpkg.exe install opus --classic --x-install-root=C:\vcpkg\installed
+          .\vcpkg.exe install opus --triplet x64-windows --classic --x-install-root=C:\vcpkg\installed
 
       - name: Build Rust backend (service)
         shell: pwsh
