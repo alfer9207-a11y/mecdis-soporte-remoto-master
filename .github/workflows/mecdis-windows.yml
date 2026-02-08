@@ -1,212 +1,74 @@
-name: Mec-Dis Windows Build (Installer + Portable)
+name: Mec-Dis Soporte Remoto (Windows Portable)
 
 on:
-  push:
-    branches: ["main", "master"]
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - ".github/ISSUE_TEMPLATE/**"
   workflow_dispatch:
-
-concurrency:
-  group: mecdis-windows-${{ github.ref }}
-  cancel-in-progress: true
+  push:
+    branches: [ main ]
 
 jobs:
-  build-windows:
+  build:
     runs-on: windows-latest
+
     env:
-      CI: "true"
-      FLUTTER_SUPPRESS_ANALYTICS: "true"
-      PUB_CACHE: ${{ github.workspace }}\.pub-cache
-
-      # vcpkg: always use our own copy
-      VCPKG_ROOT: C:\vcpkg
-      VCPKG_DEFAULT_TRIPLET: x64-windows-static
-      VCPKG_DISABLE_METRICS: "1"
-      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
-
-      RUST_BACKTRACE: "1"
-      CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_DEBUG: "true"
+      # Cache binario de vcpkg en GitHub Actions
+      VCPKG_BINARY_SOURCES: clear;x-gha,readwrite
+      VCPKG_INSTALLATION_ROOT: C:\vcpkg
 
     steps:
-      - name: Checkout (with submodules + LFS)
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          lfs: true
 
-      # FIX: extended_text 14.x requires Dart SDK >= 3.5.0
-      # Dart 3.5.x ships with Flutter 3.24.x (stable)
-      - name: Install Flutter 3.24.5 (stable) + cache
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.75.0
+
+      - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.24.5"
           channel: stable
           cache: true
 
-      - name: Cache Flutter PUB (workspace PUB_CACHE)
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.PUB_CACHE }}
-          key: ${{ runner.os }}-pub-${{ hashFiles('flutter/pubspec.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-pub-
-
-      - name: Flutter sanity (analytics off + precache + pub get)
+      - name: Install vcpkg + opus (classic mode)
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-
-          # Keep it compatible across Flutter versions:
-          # - do NOT use "flutter --disable-telemetry" (not available in some versions)
-          # - do NOT use "--no-cli-animations" (breaks older tools)
-          flutter config --no-analytics
-
-          for ($i=1; $i -le 3; $i++) {
-            flutter precache --windows
-            if ($LASTEXITCODE -eq 0) { break }
-            Start-Sleep -Seconds 10
+          if (-not (Test-Path $Env:VCPKG_INSTALLATION_ROOT)) {
+            git clone https://github.com/microsoft/vcpkg $Env:VCPKG_INSTALLATION_ROOT
           }
+          cd $Env:VCPKG_INSTALLATION_ROOT
+          .\bootstrap-vcpkg.bat
+          .\vcpkg.exe install opus --classic --x-install-root=C:\vcpkg\installed
 
-          Push-Location flutter
+      - name: Build Rust backend (service)
+        shell: pwsh
+        run: |
+          cargo build --release --bin service
+
+      - name: Build Flutter UI (Windows)
+        shell: pwsh
+        working-directory: flutter
+        run: |
           flutter pub get
-          Pop-Location
+          flutter build windows --release
 
-      - name: MSVC dev cmd (needed for vcpkg + native deps)
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Force vcpkg env (override VS integrated vcpkg) [HARD]
+      - name: Package portable zip
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          $env:VCPKG_ROOT = "C:\vcpkg"
-          $env:VCPKG_DEFAULT_TRIPLET = "x64-windows-static"
-          $env:VCPKG_TARGET_TRIPLET = "x64-windows-static"
+          $out = "portable_out"
+          Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
 
-          "VCPKG_ROOT=C:\vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "VCPKG_DEFAULT_TRIPLET=x64-windows-static" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          "VCPKG_TARGET_TRIPLET=x64-windows-static" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Copy-Item -Recurse -Force "flutter\build\windows\x64\runner\Release\*" $out
 
-      - name: Bootstrap vcpkg (if missing) [C:\vcpkg only]
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $vcpkg = "C:\vcpkg"
-          if (-not (Test-Path "$vcpkg\vcpkg.exe")) {
-            git clone https://github.com/microsoft/vcpkg $vcpkg
-            & "$vcpkg\bootstrap-vcpkg.bat" -disableMetrics
-          }
-          & "$vcpkg\vcpkg.exe" version
+          New-Item -ItemType Directory -Force -Path "$out\backend" | Out-Null
+          Copy-Item -Force "target\release\service.exe" "$out\backend\mecdis-backend.exe"
 
-      - name: Ensure native deps via vcpkg (classic mode ONLY) [STATIC]
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $trip = "x64-windows-static"
+          Compress-Archive -Path "$out\*" -DestinationPath "MecDis_Soporte_Remoto_Portable.zip" -Force
 
-          function Ensure-Port($port, $headerPath) {
-            $hdr = "C:\vcpkg\installed\$trip\include\$headerPath"
-            if (Test-Path $hdr) { Write-Host "OK: $port header exists: $hdr"; return }
-
-            $log = Join-Path $env:RUNNER_TEMP "vcpkg-$port.log"
-            Write-Host "Installing $port via vcpkg classic mode -> triplet=$trip"
-            & "C:\vcpkg\vcpkg.exe" install $port `
-              "--classic" `
-              "--x-install-root=C:\vcpkg\installed" `
-              "--triplet" $trip `
-              "--clean-after-build" 2>&1 | Tee-Object -FilePath $log
-
-            if ($LASTEXITCODE -ne 0) {
-              Write-Host "==== vcpkg-$port.log (tail) ===="
-              Get-Content $log -Tail 250
-              throw "vcpkg install failed: $port"
-            }
-            if (-not (Test-Path $hdr)) {
-              Write-Host "==== vcpkg-$port.log (tail) ===="
-              Get-Content $log -Tail 250
-              throw "Header still missing after install: $hdr"
-            }
-          }
-
-          Ensure-Port "opus" "opus\opus_multistream.h"
-          Ensure-Port "libvpx" "vpx\vp8.h"
-          Ensure-Port "aom" "aom\aom.h"
-          Ensure-Port "libyuv" "libyuv\convert.h"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-
-      - name: Cache Cargo (registry + git + target)
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~\.cargo\registry
-            ~\.cargo\git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Prepare portable packer required assets
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          New-Item -ItemType Directory -Force -Path "libs\portable\res" | Out-Null
-          New-Item -ItemType Directory -Force -Path "libs\portable\src\res" | Out-Null
-          $dataBin = "libs\portable\data.bin"
-          if (-not (Test-Path $dataBin)) { [System.IO.File]::WriteAllBytes($dataBin, @()) }
-          $bytes = [Convert]::FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/6X2Z0sAAAAASUVORK5CYII=")
-          $label1 = "libs\portable\res\label.png"
-          if (-not (Test-Path $label1)) { [System.IO.File]::WriteAllBytes($label1, $bytes) }
-          $label2 = "libs\portable\src\res\label.png"
-          if (-not (Test-Path $label2)) { [System.IO.File]::WriteAllBytes($label2, $bytes) }
-          $metaToml = "libs\portable\app_metadata.toml"
-          if (-not (Test-Path $metaToml)) {
-            @(
-              'name = "Mec-Dis Soporte Remoto"',
-              'publisher = "Mec-Dis Computadoras"',
-              'homepage = "https://mec-dis.com"'
-            ) | Set-Content -Path $metaToml -Encoding UTF8
-          }
-
-      - name: Build portable packer (needed for installer exe)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          cargo build -p rustdesk-portable-packer --release
-
-      - name: Build Mec-Dis (Flutter) + create Installer EXE
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          python build.py --flutter --portable
-
-      - name: Prepare Mec-Dis artifacts (Setup EXE + Portable ZIP)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $installer = Get-ChildItem -Path "libs/portable" -Filter "rustdesk-*-install.exe" -File -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
-          if ($null -ne $installer -and $null -ne $installer.FullName -and (Test-Path $installer.FullName)) {
-            Copy-Item $installer.FullName (Join-Path "dist" "Mec-Dis-Soporte-Remoto-Setup.exe") -Force
-            Write-Host "Installer copied ✔"
-          } else {
-            Write-Host "Installer missing, skipped (portable OK) ⚠"
-            Get-ChildItem -Path "libs/portable" -File | Select-Object Name,Length,LastWriteTime
-          }
-
-          $releaseDir = "flutter\build\windows\x64\runner\Release"
-          if (-not (Test-Path $releaseDir)) { throw "Flutter Release output missing: $releaseDir" }
-
-          $portableZip = Join-Path "dist" "Mec-Dis-Soporte-Remoto-Portable.zip"
-          if (Test-Path $portableZip) { Remove-Item $portableZip -Force }
-          Compress-Archive -Path (Join-Path $releaseDir "*") -DestinationPath $portableZip
-      - name: Upload Mec-Dis artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Mec-Dis-Windows
-          path: dist/*
+          name: MecDis_Soporte_Remoto_Portable
+          path: MecDis_Soporte_Remoto_Portable.zip
