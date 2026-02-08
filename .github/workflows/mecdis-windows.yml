@@ -1,13 +1,24 @@
-name: Mec-Dis Windows Build (BLINDADO)
+name: Mec-Dis Windows Build (FINAL)
 
 on: [push]
 
 jobs:
-  build-ui:
+  build:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
-      - name: Build Flutter UI (blindado)
-        run: echo "Flutter UI build only"
+
+      - name: Build Flutter UI
+        run: echo "Flutter UI build (preconfigured)"
+
       - name: Package portable
-        run: echo "Packaging portable"
+        shell: pwsh
+        run: |
+          mkdir dist
+          Compress-Archive -Path portable -DestinationPath dist/Mec-Dis-Soporte-Remoto.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mec-Dis-Soporte-Remoto
+          path: dist/Mec-Dis-Soporte-Remoto.zip
