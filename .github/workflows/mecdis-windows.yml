@@ -167,7 +167,17 @@ jobs:
             Write-Host "Installer EXE not found, continuing (portable OK)"
           }
           New-Item -ItemType Directory -Force -Path "dist" | Out-Null
-          Copy-Item $installer.FullName (Join-Path "dist" "Mec-Dis-Soporte-Remoto-Setup.exe") -Force
+          if ($null -ne $installer -and $null -ne $installer.FullName -and (Test-Path $installer.FullName)) {
+  if ($null -ne $installer -and $null -ne $installer.FullName -and (Test-Path $installer.FullName)) {
+  Copy-Item $installer.FullName (Join-Path "dist" "Mec-Dis-Soporte-Remoto-Setup.exe") -Force
+  Write-Host "Installer copied ✔"
+} else {
+  Write-Host "Installer missing, skipped (portable OK) ⚠"
+}
+  Write-Host "Installer copied ✔"
+} else {
+  Write-Host "Installer missing, skipped (portable OK) ⚠"
+}
 
           $releaseDir = "flutter\build\windows\x64\runner\Release"
           if (-not (Test-Path $releaseDir)) { throw "Flutter Release output missing: $releaseDir" }
