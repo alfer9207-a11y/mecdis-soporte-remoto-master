@@ -162,22 +162,14 @@ jobs:
           $ErrorActionPreference = "Stop"
           $installer = Get-ChildItem -Path "libs/portable" -Filter "rustdesk-*-install.exe" -File -ErrorAction SilentlyContinue |
             Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if ($null -eq $installer) {
-            Get-ChildItem -Path "libs/portable" -File | Select-Object Name,Length,LastWriteTime
-            Write-Host "Installer EXE not found, continuing (portable OK)"
-          }
           New-Item -ItemType Directory -Force -Path "dist" | Out-Null
           if ($null -ne $installer -and $null -ne $installer.FullName -and (Test-Path $installer.FullName)) {
-  if ($null -ne $installer -and $null -ne $installer.FullName -and (Test-Path $installer.FullName)) {
-  Copy-Item $installer.FullName (Join-Path "dist" "Mec-Dis-Soporte-Remoto-Setup.exe") -Force
-  Write-Host "Installer copied ✔"
-} else {
-  Write-Host "Installer missing, skipped (portable OK) ⚠"
-}
-  Write-Host "Installer copied ✔"
-} else {
-  Write-Host "Installer missing, skipped (portable OK) ⚠"
-}
+            Copy-Item $installer.FullName (Join-Path "dist" "Mec-Dis-Soporte-Remoto-Setup.exe") -Force
+            Write-Host "Installer copied ✔"
+          } else {
+            Write-Host "Installer missing, skipped (portable OK) ⚠"
+            Get-ChildItem -Path "libs/portable" -File | Select-Object Name,Length,LastWriteTime
+          }
 
           $releaseDir = "flutter\build\windows\x64\runner\Release"
           if (-not (Test-Path $releaseDir)) { throw "Flutter Release output missing: $releaseDir" }
@@ -185,7 +177,6 @@ jobs:
           $portableZip = Join-Path "dist" "Mec-Dis-Soporte-Remoto-Portable.zip"
           if (Test-Path $portableZip) { Remove-Item $portableZip -Force }
           Compress-Archive -Path (Join-Path $releaseDir "*") -DestinationPath $portableZip
-
       - name: Upload Mec-Dis artifacts
         uses: actions/upload-artifact@v4
         with:
