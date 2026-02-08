@@ -46,13 +46,13 @@ jobs:
           channel: stable
           cache: true
 
-- name: Cache Flutter PUB (workspace PUB_CACHE)
-  uses: actions/cache@v4
-  with:
-    path: ${{ env.PUB_CACHE }}
-    key: ${{ runner.os }}-pub-${{ hashFiles('flutter/pubspec.lock') }}
-    restore-keys: |
-      ${{ runner.os }}-pub-
+      - name: Cache Flutter PUB (workspace PUB_CACHE)
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PUB_CACHE }}
+          key: ${{ runner.os }}-pub-${{ hashFiles('flutter/pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
 
       - name: Flutter sanity (analytics off + precache + pub get)
         shell: pwsh
@@ -139,16 +139,16 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
 
-- name: Cache Cargo (registry + git + target)
-  uses: actions/cache@v4
-  with:
-    path: |
-      ~\.cargo\registry
-      ~\.cargo\git
-      target
-    key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-    restore-keys: |
-      ${{ runner.os }}-cargo-
+      - name: Cache Cargo (registry + git + target)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\.cargo\registry
+            ~\.cargo\git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Prepare portable packer required assets
         shell: pwsh
