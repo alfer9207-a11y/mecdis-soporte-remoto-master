@@ -1,4 +1,4 @@
-name: Mec-Dis Windows Build (Portable EXE + ZIP)
+name: Mec-Dis Windows Build (Installer + Portable)
 
 on:
   push:
@@ -21,9 +21,6 @@ jobs:
 
       RUST_BACKTRACE: "1"
       CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_DEBUG: "true"
-      # Speed up CI builds (keep correctness; disable heavy release LTO in CI)
-      CARGO_PROFILE_RELEASE_LTO: "false"
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
 
     steps:
       - name: Checkout (with submodules + LFS)
@@ -125,6 +122,28 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Cargo (Rust)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Cache vcpkg (Windows native deps)
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\vcpkg\installed
+            C:\vcpkg\downloads
+            C:\vcpkg\packages
+          key: ${{ runner.os }}-vcpkg-${{ hashFiles('vcpkg.json', '**/vcpkg.json') }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-
+
       - name: Prepare portable packer required assets
         shell: pwsh
         run: |
@@ -147,50 +166,55 @@ jobs:
             ) | Set-Content -Path $metaToml -Encoding UTF8
           }
 
-
-      - name: Build Mec-Dis (Flutter) [PORTABLE ONLY]
+      - name: Build portable packer (needed for installer exe)
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          python build.py --flutter
+          cargo build -p rustdesk-portable-packer --release
 
-      - name: Prepare Mec-Dis artifacts (Portable EXE + Portable ZIP)
+      - name: Build Mec-Dis (Flutter) + create Installer EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          python build.py --flutter --portable
+
+      - name: Prepare Mec-Dis artifacts (Setup EXE + Portable Folder)
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path "dist" | Out-Null
-      
-          $releaseDir = "flutter\\build\\windows\\x64\\runner\\Release"
+
+          # (Optional) Setup EXE from libs/portable (if present)
+          $installer = Get-ChildItem -Path "libs/portable" -Filter "rustdesk-*-install.exe" -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if ($null -ne $installer) {
+            Copy-Item $installer.FullName (Join-Path "dist" "Mec-Dis-Soporte-Remoto-Setup.exe") -Force
+          }
+
+          # Portable folder = Flutter Windows Release output (must include ALL *.dll + data/)
+          $releaseDir = "flutter\build\windows\x64\runner\Release"
           if (-not (Test-Path $releaseDir)) { throw "Flutter Release output missing: $releaseDir" }
-      
-          # Copy full portable folder
+
           $portableDir = Join-Path "dist" "Mec-Dis-Soporte-Remoto-Portable"
           if (Test-Path $portableDir) { Remove-Item $portableDir -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
           Copy-Item -Path (Join-Path $releaseDir "*") -Destination $portableDir -Recurse -Force
-      
-          # Rename main exe inside portable folder (keep only one)
-          $exe1 = Join-Path $portableDir "mecdis-soporte-remoto.exe"
-          $exe2 = Join-Path $portableDir "Mec-Dis-Soporte-Remoto.exe"
-          if (Test-Path $exe1) { Rename-Item -Path $exe1 -NewName "Mec-Dis-Soporte-Remoto.exe" -Force }
-          elseif (-not (Test-Path $exe2)) {
-            # fallback: take any .exe in portable folder
-            $anyExe = Get-ChildItem -Path $portableDir -Filter "*.exe" -File | Select-Object -First 1
-            if ($null -eq $anyExe) { throw "No EXE found in portable folder" }
-            Rename-Item -Path $anyExe.FullName -NewName "Mec-Dis-Soporte-Remoto.exe" -Force
-          }
-      
-          # Export the EXE as a standalone artifact (optional convenience)
-          Copy-Item -Path (Join-Path $portableDir "Mec-Dis-Soporte-Remoto.exe") -Destination (Join-Path "dist" "Mec-Dis-Soporte-Remoto.exe") -Force
-      
-          # Create portable zip containing the folder
-          $portableZip = Join-Path "dist" "Mec-Dis-Soporte-Remoto-Portable.zip"
-          if (Test-Path $portableZip) { Remove-Item $portableZip -Force }
-          Compress-Archive -Path $portableDir -DestinationPath $portableZip -Force
-      
+
+          # Quick instructions to avoid "missing *.dll" errors
+          @(
+            "Mec-Dis Soporte Remoto (PORTABLE)",
+            "",
+            "✅ IMPORTANTE:",
+            "1) NO ejecutes el .exe suelto fuera de esta carpeta.",
+            "2) Ejecuta: .\Mec-Dis-Soporte-Remoto-Portable\Mec-Dis-Soporte-Remoto.exe",
+            "3) Mantén juntos: data\ + *.dll + flutter_windows.dll",
+            "",
+            "Si ves errores tipo: 'no se encontró desktop_*.dll', es porque moviste solo el EXE.",
+            ""
+          ) | Set-Content -Encoding UTF8 (Join-Path "dist" "README_PORTABLE.txt")
+
       - name: Upload Mec-Dis artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Mec-Dis-Portable-Windows
-          path: |
-            dist/Mec-Dis-Soporte-Remoto.exe
-            dist/Mec-Dis-Soporte-Remoto-Portable.zip
+          name: Mec-Dis-Windows
+          path: dist/*
