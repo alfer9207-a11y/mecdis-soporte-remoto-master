@@ -1,24 +1,47 @@
-name: Mec-Dis Windows Build (FINAL)
+name: Mec-Dis Windows Build FINAL
 
-on: [push]
+on:
+  push:
+    branches: [ main ]
 
 jobs:
   build:
     runs-on: windows-2022
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Flutter UI
-        run: echo "Flutter UI build (preconfigured)"
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.6'
+          channel: 'stable'
 
-      - name: Package portable
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Get dependencies
+        run: flutter pub get
+        working-directory: flutter
+
+      - name: Build Windows EXE
+        run: flutter build windows --release
+        working-directory: flutter
+
+      - name: Prepare portable
         shell: pwsh
         run: |
           mkdir dist
-          Compress-Archive -Path portable -DestinationPath dist/Mec-Dis-Soporte-Remoto.zip
+          copy flutter\build\windows\x64\runner\Release\*.exe dist\
+          xcopy portable dist\portable /E /I
+
+      - name: Zip portable
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist\* -DestinationPath Mec-Dis-Soporte-Remoto.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: Mec-Dis-Soporte-Remoto
-          path: dist/Mec-Dis-Soporte-Remoto.zip
+          path: Mec-Dis-Soporte-Remoto.zip
