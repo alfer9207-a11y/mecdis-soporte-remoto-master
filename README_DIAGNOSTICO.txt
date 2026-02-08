@@ -1,7 +1,6 @@
 Mec-Dis Soporte Remoto
-Modo FINAL TODO JUNTO
+Portable FINAL
 
-- UI siempre inicia
-- Backend separado y oculto
-- Timeout y healthcheck
-- CI blindado
+- Ejecutable principal: Mec-Dis-Soporte-Remoto.exe
+- Backend: portable/backend/mecdis-backend.exe
+- CI blindado, backend precompilado
