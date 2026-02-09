@@ -10,7 +10,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # IMPORTANT: Flutter 3.24.x includes Dart 3.5+ required by extended_text 14.x
       - name: Install Flutter (Dart >= 3.5)
         uses: subosito/flutter-action@v2
         with:
@@ -23,6 +22,7 @@ jobs:
         run: |
           flutter --version
           dart --version
+          flutter doctor -v
 
       - name: Enable Windows desktop
         run: flutter config --enable-windows-desktop
@@ -31,9 +31,11 @@ jobs:
         working-directory: flutter
         run: flutter pub get
 
-      - name: Build Windows EXE (Release)
+      - name: Build Windows EXE (Release, verbose)
         working-directory: flutter
-        run: flutter build windows --release
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: "2"
+        run: flutter build windows --release -v
 
       - name: Prepare portable
         shell: pwsh
