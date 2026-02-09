@@ -40,8 +40,9 @@ jobs:
       - name: Prepare portable
         shell: pwsh
         run: |
+          Remove-Item -Recurse -Force dist -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item -Force flutter\build\windows\x64\runner\Release\*.exe dist\
+          Copy-Item -Recurse -Force flutter\build\windows\x64\runner\Release\* dist\
           Copy-Item -Recurse -Force portable dist\portable
 
       - name: Zip portable
