@@ -17,7 +17,7 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Install NASM (for codec deps on Windows)
+      - name: Install NASM (needed for some codec deps on Windows)
         shell: pwsh
         run: |
           choco install nasm -y
@@ -26,6 +26,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+
           if (!(Test-Path "vcpkg.json")) {
             Write-Error "vcpkg.json no encontrado en la raiz del repo"
             exit 1
@@ -43,6 +44,38 @@ jobs:
           Push-Location $env:GITHUB_WORKSPACE
           & "$vcpkg\vcpkg.exe" install --triplet x64-windows
           Pop-Location
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build backend (Rust) -> portable\backend\mecdis-backend.exe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # Build rustdesk backend. The repo uses the "flutter" feature for this fork.
+          cargo build --release --features flutter
+
+          $src = Join-Path $env:GITHUB_WORKSPACE "target\release\rustdesk.exe"
+          if (!(Test-Path $src)) {
+            # fallback: sometimes binary name differs, try any exe in target\release
+            $candidates = Get-ChildItem -Path (Join-Path $env:GITHUB_WORKSPACE "target\release") -Filter "*.exe" -ErrorAction SilentlyContinue
+            if ($candidates.Count -eq 0) { throw "No EXE produced in target\release" }
+            $src = $candidates[0].FullName
+          }
+
+          New-Item -Force -ItemType Directory (Join-Path $env:GITHUB_WORKSPACE "portable\backend") | Out-Null
+          New-Item -Force -ItemType Directory (Join-Path $env:GITHUB_WORKSPACE "appimage\portable\backend") | Out-Null
+
+          Copy-Item -Force $src (Join-Path $env:GITHUB_WORKSPACE "portable\backend\mecdis-backend.exe")
+          Copy-Item -Force $src (Join-Path $env:GITHUB_WORKSPACE "appimage\portable\backend\mecdis-backend.exe")
+
+          $len = (Get-Item (Join-Path $env:GITHUB_WORKSPACE "portable\backend\mecdis-backend.exe")).Length
+          if ($len -lt 1000000) { throw "Backend demasiado chico ($len bytes). Sigue siendo placeholder." }
+          Write-Host "Backend OK, size: $len bytes"
 
       - name: Install Flutter (stable)
         uses: subosito/flutter-action@v2
@@ -64,7 +97,7 @@ jobs:
         run: |
           flutter pub get
 
-      - name: Build Windows (Release)
+      - name: Build Windows UI (Release)
         working-directory: flutter
         shell: pwsh
         env:
@@ -72,9 +105,11 @@ jobs:
         run: |
           flutter build windows --release -v
 
-      - name: Prepare dist
+      - name: Prepare dist (UI + portable backend)
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+
           Remove-Item -Recurse -Force dist -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path dist | Out-Null
 
@@ -82,6 +117,12 @@ jobs:
 
           if (Test-Path "portable") {
             Copy-Item -Recurse -Force "portable" "dist\portable"
+          } else {
+            throw "Carpeta 'portable' no existe en la raiz"
+          }
+
+          if (!(Test-Path "dist\portable\backend\mecdis-backend.exe")) {
+            throw "No se empaquetó el backend en dist\portable\backend\mecdis-backend.exe"
           }
 
       - name: Create final ZIP
