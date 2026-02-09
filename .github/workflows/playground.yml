@@ -175,7 +175,7 @@ jobs:
       - name: Install vcpkg dependencies
         if: false
         run: |
-          $VCPKG_ROOT/vcpkg install libvpx libyuv opus aom
+          $VCPKG_ROOT/vcpkg install
 
       - name: Show version information (Rust, cargo, Clang)
         shell: bash
