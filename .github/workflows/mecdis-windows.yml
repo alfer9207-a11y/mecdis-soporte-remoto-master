@@ -7,38 +7,39 @@ on:
 jobs:
   build:
     runs-on: windows-2022
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Flutter
+      - name: Install Flutter (Dart >= 3.5)
+      # Flutter 3.22.x ships with Dart 3.5+ which satisfies flutter_hbb constraints
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.6'
+          flutter-version: '3.22.3'
           channel: 'stable'
+          cache: true
 
       - name: Enable Windows desktop
         run: flutter config --enable-windows-desktop
 
       - name: Get dependencies
+        working-directory: flutter
         run: flutter pub get
-        working-directory: flutter
 
-      - name: Build Windows EXE
-        run: flutter build windows --release
+      - name: Build Windows EXE (Release)
         working-directory: flutter
+        run: flutter build windows --release
 
       - name: Prepare portable
         shell: pwsh
         run: |
-          mkdir dist
-          copy flutter\build\windows\x64\runner\Release\*.exe dist\
-          xcopy portable dist\portable /E /I
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item -Force flutter\build\windows\x64\runner\Release\*.exe dist\
+          Copy-Item -Recurse -Force portable dist\portable
 
       - name: Zip portable
         shell: pwsh
         run: |
-          Compress-Archive -Path dist\* -DestinationPath Mec-Dis-Soporte-Remoto.zip
+          Compress-Archive -Path dist\* -DestinationPath Mec-Dis-Soporte-Remoto.zip -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
