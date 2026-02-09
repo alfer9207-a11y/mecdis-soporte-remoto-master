@@ -10,13 +10,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # IMPORTANT: Flutter 3.24.x includes Dart 3.5+ required by extended_text 14.x
       - name: Install Flutter (Dart >= 3.5)
-      # Flutter 3.22.x ships with Dart 3.5+ which satisfies flutter_hbb constraints
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.3'
+          flutter-version: '3.24.3'
           channel: 'stable'
-          cache: true
+          cache: false
+
+      - name: Verify Flutter/Dart versions
+        shell: pwsh
+        run: |
+          flutter --version
+          dart --version
 
       - name: Enable Windows desktop
         run: flutter config --enable-windows-desktop
