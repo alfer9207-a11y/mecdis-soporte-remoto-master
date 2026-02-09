@@ -26,11 +26,57 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $bad = Select-String -Path ".github/workflows/mecdis-windows.yml" -Pattern "vcpkg(\\.exe)?\s+install\s+[A-Za-z0-9]" -AllMatches
-          if ($bad) {
-            Write-Error "Uso ilegal detectado: vcpkg install con argumentos (manifest mode). Usa SOLO: vcpkg install"
-            $bad
+
+          # Opciones comunes de vcpkg install que llevan valor (para no confundir valores con paquetes)
+          $optsWithValue = @(
+            '--triplet','--host-triplet',
+            '--overlay-ports','--overlay-triplets',
+            '--x-install-root','--x-packages-root','--x-buildtrees-root','--x-downloads-root',
+            '--x-manifest-root','--vcpkg-root'
+          )
+
+          $badHits = @()
+
+          Get-ChildItem -Path ".github/workflows" -Filter "*.yml" -File | ForEach-Object {
+            $file = $_.FullName
+            $lines = Get-Content $file
+
+            foreach ($line in $lines) {
+              # Detecta llamadas a vcpkg (vcpkg / vcpkg.exe / & "path\vcpkg.exe") con 'install'
+              if ($line -match '^\s*(?:&\s*)?.*vcpkg(?:\.exe)?\s+install\s+') {
+                $rest = ($line -replace '^\s*(?:&\s*)?.*vcpkg(?:\.exe)?\s+install\s+','').Trim()
+                if ($rest.Length -eq 0) { continue }
+
+                $tokens = $rest -split '\s+'
+                $skipNext = $false
+                $illegal = $null
+
+                foreach ($t in $tokens) {
+                  if ($skipNext) { $skipNext = $false; continue }
+
+                  if ($t.StartsWith('-')) {
+                    if ($optsWithValue -contains $t) { $skipNext = $true }
+                    continue
+                  }
+
+                  # Token sin '-' que NO es valor esperado -> es muy probable que sea paquete (ilegal en manifest mode)
+                  $illegal = $t
+                  break
+                }
+
+                if ($illegal) {
+                  $badHits += [pscustomobject]@{ File=$file; Line=$line.Trim() }
+                }
+              }
+            }
+          }
+
+          if ($badHits.Count -gt 0) {
+            Write-Error "Uso ilegal detectado: 'vcpkg install <paquete>' en manifest mode. Usa SOLO: vcpkg install (sin nombres de paquetes)."
+            $badHits | Format-Table -AutoSize | Out-String | Write-Host
             exit 1
+          } else {
+            Write-Host "OK: No se detectó 'vcpkg install <paquete>' en workflows."
           }
 
       - name: Setup vcpkg (MANIFEST MODE - BLINDADO)
