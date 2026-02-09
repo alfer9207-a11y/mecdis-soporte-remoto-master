@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "Purslane Ltd" "\0"
-            VALUE "FileDescription", "MecDis Soporte Remoto" "\0"
+            VALUE "CompanyName", "com.carriez" "\0"
+            VALUE "FileDescription", "mecdis_soporte_remoto_shell" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "mecdis-soporte-remoto" "\0"
-            VALUE "LegalCopyright", "Copyright © 2025 Purslane Ltd. All rights reserved." "\0"
-            VALUE "OriginalFilename", "mecdis-soporte-remoto.exe" "\0"
-            VALUE "ProductName", "MecDis Soporte Remoto" "\0"
+            VALUE "InternalName", "mecdis_soporte_remoto_shell" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 com.carriez. All rights reserved." "\0"
+            VALUE "OriginalFilename", "mecdis_soporte_remoto_shell.exe" "\0"
+            VALUE "ProductName", "mecdis_soporte_remoto_shell" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

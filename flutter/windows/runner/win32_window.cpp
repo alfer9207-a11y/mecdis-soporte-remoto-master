@@ -1,16 +1,30 @@
 #include "win32_window.h"
 
+#include <dwmapi.h>
 #include <flutter_windows.h>
-#include <shobjidl_core.h>
 
 #include "resource.h"
 
-#include <cstdlib> // for getenv and _putenv
-#include <cstring> // for strcmp
-
 namespace {
 
+/// Window attribute that enables dark mode window decorations.
+///
+/// Redefined in case the developer's machine has a Windows SDK older than
+/// version 10.0.22000.0.
+/// See: https://docs.microsoft.com/windows/win32/api/dwmapi/ne-dwmapi-dwmwindowattribute
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
+
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
+
+/// Registry key for app theme preference.
+///
+/// A value of 0 indicates apps should use dark mode. A non-zero or missing
+/// value indicates apps should use light mode.
+constexpr const wchar_t kGetPreferredBrightnessRegKey[] =
+  L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize";
+constexpr const wchar_t kGetPreferredBrightnessRegValue[] = L"AppsUseLightTheme";
 
 // The number of Win32Window objects that currently exist.
 static int g_active_window_count = 0;
@@ -35,8 +49,8 @@ void EnableFullDpiSupportIfAvailable(HWND hwnd) {
           GetProcAddress(user32_module, "EnableNonClientDpiScaling"));
   if (enable_non_client_dpi_scaling != nullptr) {
     enable_non_client_dpi_scaling(hwnd);
-    FreeLibrary(user32_module);
   }
+  FreeLibrary(user32_module);
 }
 
 }  // namespace
@@ -106,9 +120,9 @@ Win32Window::~Win32Window() {
   Destroy();
 }
 
-bool Win32Window::CreateAndShow(const std::wstring& title,
-                                const Point& origin,
-                                const Size& size, bool showOnTaskBar) {
+bool Win32Window::Create(const std::wstring& title,
+                         const Point& origin,
+                         const Size& size) {
   Destroy();
 
   const wchar_t* window_class =
@@ -130,39 +144,13 @@ bool Win32Window::CreateAndShow(const std::wstring& title,
     return false;
   }
 
-  if (!showOnTaskBar) {
-    // hide from taskbar
-    HRESULT hr;
-    ITaskbarList* pTaskbarList;
-    hr = CoCreateInstance(CLSID_TaskbarList, NULL, CLSCTX_INPROC_SERVER,IID_ITaskbarList,(void**)&pTaskbarList);
-    if (FAILED(hr)) {
-        return false;
-    }
-    hr = pTaskbarList->HrInit();
-    hr = pTaskbarList->DeleteTab(window);
-    hr = pTaskbarList->Release();
-  }
+  UpdateTheme(window);
 
   return OnCreate();
 }
 
-static void trySetWindowForeground(HWND window) {
-    char* value = nullptr;
-    size_t size = 0;
-    // Use _dupenv_s to safely get the environment variable
-    _dupenv_s(&value, &size, "SET_FOREGROUND_WINDOW");
-
-    if (value != nullptr) {
-        // Correctly compare the value with "1"
-        if (strcmp(value, "1") == 0) {
-            // Clear the environment variable
-            _putenv("SET_FOREGROUND_WINDOW=");
-            // Set the window to foreground
-            SetForegroundWindow(window);
-        }
-        // Free the duplicated string
-        free(value);
-    }
+bool Win32Window::Show() {
+  return ShowWindow(window_handle_, SW_SHOWNORMAL);
 }
 
 // static
@@ -178,7 +166,6 @@ LRESULT CALLBACK Win32Window::WndProc(HWND const window,
     auto that = static_cast<Win32Window*>(window_struct->lpCreateParams);
     EnableFullDpiSupportIfAvailable(window);
     that->window_handle_ = window;
-    trySetWindowForeground(window);
   } else if (Win32Window* that = GetThisFromHandle(window)) {
     return that->MessageHandler(window, message, wparam, lparam);
   }
@@ -224,6 +211,10 @@ Win32Window::MessageHandler(HWND hwnd,
       if (child_content_ != nullptr) {
         SetFocus(child_content_);
       }
+      return 0;
+
+    case WM_DWMCOLORIZATIONCOLORCHANGED:
+      UpdateTheme(hwnd);
       return 0;
   }
 
@@ -281,6 +272,17 @@ void Win32Window::OnDestroy() {
   // No-op; provided for subclasses.
 }
 
-const wchar_t* getWindowClassName() {
-  return kWindowClassName;
+void Win32Window::UpdateTheme(HWND const window) {
+  DWORD light_mode;
+  DWORD light_mode_size = sizeof(light_mode);
+  LSTATUS result = RegGetValue(HKEY_CURRENT_USER, kGetPreferredBrightnessRegKey,
+                               kGetPreferredBrightnessRegValue,
+                               RRF_RT_REG_DWORD, nullptr, &light_mode,
+                               &light_mode_size);
+
+  if (result == ERROR_SUCCESS) {
+    BOOL enable_dark_mode = light_mode == 0;
+    DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
+                          &enable_dark_mode, sizeof(enable_dark_mode));
+  }
 }

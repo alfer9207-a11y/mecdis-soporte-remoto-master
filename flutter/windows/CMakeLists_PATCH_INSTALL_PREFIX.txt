@@ -1,7 +1,0 @@
-Pega estas líneas cerca del inicio de flutter/windows/CMakeLists.txt (después de project(...) o al inicio):
-
-# --- Mec-Dis CI patch: force writable install prefix (prevents INSTALL.vcxproj failures on CI) ---
-# Some CMake install steps default to Program Files and fail due to permissions on GitHub runners.
-# Force installs to stay inside the build directory.
-set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/install" CACHE PATH "Install path" FORCE)
-# --- end patch ---
