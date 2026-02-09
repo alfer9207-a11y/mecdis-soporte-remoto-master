@@ -1,7 +1,6 @@
 {
   "name": "mecdis-soporte-remoto",
   "version-string": "1.0.0",
-  "builtin-baseline": "9a9b3c9a7b8f7c8c0a4e2e0c4b3f7d1f1a7d4b7c",
   "dependencies": [
     "opus"
   ]

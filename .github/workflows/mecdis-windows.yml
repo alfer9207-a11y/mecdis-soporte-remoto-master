@@ -1,122 +1,26 @@
-name: Mec-Dis Windows Build FINAL
+name: Windows Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
+  pull_request:
 
 jobs:
-  build:
-    runs-on: windows-2022
+  build-windows:
+    runs-on: windows-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
 
-      # Build the Rust core (backend) and ship it as portable\backend\mecdis-backend.exe.
-      # Without this, the downloaded artifact will contain only a placeholder file (few bytes)
-      # and nothing will listen on the expected local port.
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install NASM (needed for aom on Windows)
-        shell: pwsh
-        run: |
-          choco install nasm -y
-
       - name: Setup vcpkg (manifest mode)
-        shell: pwsh
+        shell: powershell
         run: |
-          $ErrorActionPreference = 'Stop'
-          $vcpkg = "${{ github.workspace }}\\vcpkg"
-          if (!(Test-Path $vcpkg)) {
-            # Shallow clone is faster; then fetch the baseline commit required by vcpkg.json
-            git clone --depth 1 https://github.com/microsoft/vcpkg $vcpkg
+          if (!(Test-Path "vcpkg.json")) {
+            Write-Error "vcpkg.json no encontrado"
+            exit 1
           }
-          $baseline = "120deac3062162151622ca4860575a33844ba10b"
-          git -C $vcpkg fetch --depth 1 origin $baseline
-          & "$vcpkg\\bootstrap-vcpkg.bat"
-          "VCPKG_ROOT=$vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "VCPKG_DEFAULT_TRIPLET=x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Push-Location "${{ github.workspace }}"
-          try {
-            & "$vcpkg\\vcpkg.exe" install
-          } catch {
-            Write-Host "vcpkg install failed. Dumping aom logs (if any)..."
-            Get-ChildItem -Path "$vcpkg\\buildtrees\\aom" -Recurse -ErrorAction SilentlyContinue | Select-Object FullName | Format-Table -AutoSize
-            Get-ChildItem -Path "$vcpkg\\buildtrees\\aom" -Recurse -Filter "*.log" -ErrorAction SilentlyContinue | ForEach-Object {
-              Write-Host "----- $($_.FullName) -----"
-              Get-Content $_.FullName -Tail 200
-            }
-            throw
-          } finally {
-            Pop-Location
-          }
-      - name: Build backend (RustDesk core)
-        shell: pwsh
-        run: |
-          # Build the main Rust binary. Some forks use the "flutter" feature; if your fork does not,
-          # remove the --features flag.
-          cargo build --release --features flutter
-
-          $exe = "${{ github.workspace }}\\target\\release\\rustdesk.exe"
-          if (!(Test-Path $exe)) { throw "Backend build did not produce rustdesk.exe at: $exe" }
-
-          # Copy/rename to the expected locations
-          New-Item -Force -ItemType Directory "portable\\backend" | Out-Null
-          New-Item -Force -ItemType Directory "appimage\\portable\\backend" | Out-Null
-          Copy-Item -Force $exe "portable\\backend\\mecdis-backend.exe"
-          Copy-Item -Force $exe "appimage\\portable\\backend\\mecdis-backend.exe"
-
-          # Safety check: ensure it is a real executable (not a tiny placeholder)
-          $len = (Get-Item "portable\\backend\\mecdis-backend.exe").Length
-          if ($len -lt 1000000) { throw "mecdis-backend.exe too small ($len bytes). Backend packaging is broken." }
-
-      - name: Install Flutter (Dart >= 3.5)
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.24.3'
-          channel: 'stable'
-          cache: false
-
-      - name: Verify Flutter/Dart versions
-        shell: pwsh
-        run: |
-          flutter --version
-          dart --version
-          flutter doctor -v
-
-      - name: Enable Windows desktop
-        run: flutter config --enable-windows-desktop
-
-      - name: Get dependencies
-        working-directory: flutter
-        run: flutter pub get
-
-      - name: Build Windows EXE (Release, verbose)
-        working-directory: flutter
-        env:
-          CMAKE_BUILD_PARALLEL_LEVEL: "2"
-        run: flutter build windows --release -v
-
-      - name: Prepare portable
-        shell: pwsh
-        run: |
-          Remove-Item -Recurse -Force dist -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item -Recurse -Force flutter\build\windows\x64\runner\Release\* dist\
-          Copy-Item -Recurse -Force portable dist\portable
-
-      - name: Zip portable
-        shell: pwsh
-        run: |
-          Compress-Archive -Path dist\* -DestinationPath Mec-Dis-Soporte-Remoto.zip -Force
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Mec-Dis-Soporte-Remoto
-          path: Mec-Dis-Soporte-Remoto.zip
+          vcpkg install

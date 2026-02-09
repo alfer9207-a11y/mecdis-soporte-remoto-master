@@ -124,6 +124,8 @@ jobs:
                gcc \
                git \
                g++ \
+               pkg-config \
+               libvpx-dev \
                libpam0g-dev \
                libasound2-dev \
                libunwind-dev \
