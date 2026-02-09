@@ -8,7 +8,20 @@ jobs:
   build:
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
+      # IMPORTANT: RustDesk depends on the hbb_common git submodule.
+      # If submodules are not fetched, the Rust build fails with:
+      #   "The system cannot find the file specified (os error 2)" for libs\\hbb_common\\Cargo.toml
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Ensure submodules are initialized
+        shell: pwsh
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive
 
       # Build the Rust core (backend) and ship it as portable\backend\mecdis-backend.exe.
       # Without this, the downloaded artifact will contain only a placeholder file (few bytes)
