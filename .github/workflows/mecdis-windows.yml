@@ -8,20 +8,10 @@ jobs:
   build:
     runs-on: windows-2022
     steps:
-      # IMPORTANT: RustDesk depends on the hbb_common git submodule.
-      # If submodules are not fetched, the Rust build fails with:
-      #   "The system cannot find the file specified (os error 2)" for libs\\hbb_common\\Cargo.toml
-      - name: Checkout (with submodules)
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
           submodules: recursive
-
-      - name: Ensure submodules are initialized
-        shell: pwsh
-        run: |
-          git submodule sync --recursive
-          git submodule update --init --recursive
+          fetch-depth: 0
 
       # Build the Rust core (backend) and ship it as portable\backend\mecdis-backend.exe.
       # Without this, the downloaded artifact will contain only a placeholder file (few bytes)
@@ -31,6 +21,19 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+
+      - name: Setup vcpkg (opus dependency)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vcpkg = "${{ github.workspace }}\\vcpkg"
+          if (!(Test-Path $vcpkg)) {
+            git clone https://github.com/microsoft/vcpkg $vcpkg
+          }
+          & "$vcpkg\\bootstrap-vcpkg.bat"
+          & "$vcpkg\\vcpkg.exe" install opus --triplet x64-windows
+          "VCPKG_ROOT=$vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "VCPKG_DEFAULT_TRIPLET=x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Build backend (RustDesk core)
         shell: pwsh
