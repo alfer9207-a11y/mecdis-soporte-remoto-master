@@ -1,44 +1,12 @@
-name: Mec-Dis CI Definitivo (Windows Artifact)
+name: flutter-ci (disabled)
 
+# Disabled: this workflow was causing YAML parse errors (called-workflow reference).
+# Use "Windows Build (Artifact)" for releases.
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
   workflow_dispatch:
 
 jobs:
-  # Full Windows build using the repo's reusable workflow
-  build_windows:
-    uses: ./.github/workflows/flutter-build.yml
-    with:
-      upload-artifact: true
-      upload-tag: "ci-${{ github.run_number }}"
-    secrets: inherit
-
-  # Pack the Windows artifact into a single ZIP with a clear final name
-  pack_windows_zip:
-    name: Pack final ZIP (Windows)
-    needs: build_windows
-    runs-on: windows-2022
+  disabled:
+    runs-on: ubuntu-latest
     steps:
-      - name: Download unsigned Windows artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: rustdesk-unsigned-windows-x86_64
-          path: rustdesk
-
-      - name: Create final ZIP
-        shell: pwsh
-        run: |
-          $run = "${{ github.run_number }}"
-          $ref = "${{ github.ref_name }}"
-          $zip = "Mec-Dis-Soporte-Remoto-${ref}-${run}.zip"
-          if (Test-Path $zip) { Remove-Item $zip -Force }
-          Compress-Archive -Path "rustdesk\*" -DestinationPath $zip -Force
-          Write-Host "Created $zip"
-
-      - name: Upload final ZIP artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Mec-Dis-Soporte-Remoto-${{ github.ref_name }}-${{ github.run_number }}
-          path: Mec-Dis-Soporte-Remoto-${{ github.ref_name }}-${{ github.run_number }}.zip
+      - run: echo "flutter-ci disabled"

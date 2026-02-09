@@ -1,26 +1,100 @@
-name: Windows Build
+name: Windows Build (Artifact)
 
 on:
   push:
     branches: [ "main" ]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    runs-on: windows-2022
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Setup vcpkg (manifest mode)
-        shell: powershell
+      - name: Install NASM (for codec deps on Windows)
+        shell: pwsh
         run: |
+          choco install nasm -y
+
+      - name: Setup vcpkg (manifest mode)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
           if (!(Test-Path "vcpkg.json")) {
-            Write-Error "vcpkg.json no encontrado"
+            Write-Error "vcpkg.json no encontrado en la raiz del repo"
             exit 1
           }
-          vcpkg install
+
+          $vcpkg = Join-Path $env:GITHUB_WORKSPACE "vcpkg"
+          if (!(Test-Path $vcpkg)) {
+            git clone --depth 1 https://github.com/microsoft/vcpkg $vcpkg
+          }
+          & "$vcpkg\bootstrap-vcpkg.bat"
+
+          "VCPKG_ROOT=$vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "VCPKG_DEFAULT_TRIPLET=x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+          Push-Location $env:GITHUB_WORKSPACE
+          & "$vcpkg\vcpkg.exe" install --triplet x64-windows
+          Pop-Location
+
+      - name: Install Flutter (stable)
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.3'
+          channel: 'stable'
+          cache: false
+
+      - name: Verify Flutter/Dart + enable windows
+        shell: pwsh
+        run: |
+          flutter --version
+          dart --version
+          flutter config --enable-windows-desktop
+
+      - name: Pub get
+        working-directory: flutter
+        shell: pwsh
+        run: |
+          flutter pub get
+
+      - name: Build Windows (Release)
+        working-directory: flutter
+        shell: pwsh
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: "2"
+        run: |
+          flutter build windows --release -v
+
+      - name: Prepare dist
+        shell: pwsh
+        run: |
+          Remove-Item -Recurse -Force dist -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+
+          Copy-Item -Recurse -Force "flutter\build\windows\x64\runner\Release\*" "dist\"
+
+          if (Test-Path "portable") {
+            Copy-Item -Recurse -Force "portable" "dist\portable"
+          }
+
+      - name: Create final ZIP
+        shell: pwsh
+        run: |
+          $run = "${{ github.run_number }}"
+          $zip = "Mec-Dis-Soporte-Remoto-main-$run.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path "dist\*" -DestinationPath $zip -Force
+          Write-Host "ZIP listo: $zip"
+
+      - name: Upload artifact (ZIP)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mec-Dis-Soporte-Remoto-main-${{ github.run_number }}
+          path: Mec-Dis-Soporte-Remoto-main-${{ github.run_number }}.zip
