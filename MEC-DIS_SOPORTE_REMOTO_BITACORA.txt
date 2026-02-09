@@ -1,0 +1,61 @@
+MEC-DIS SOPORTE REMOTO — BITÁCORA TÉCNICA (UI SHELL) Y ESTADO FINAL
+Fecha: 2026-02-08 (America/Mexico_City)
+
+OBJETIVO
+- Generar un ZIP portable para Windows con:
+  - UI en Flutter (EXE real)
+  - Backend como binario externo en portable/backend/
+  - Diagnóstico / healthcheck básico
+- Evitar que Flutter compile código nativo RustDesk (CMake/MSBuild/INSTALL.vcxproj).
+
+CAUSA RAÍZ CONFIRMADA
+- El build de Windows fallaba porque el proyecto Flutter original arrastraba dependencias nativas (flutter_rust_bridge / librustdesk.dll)
+  y el CMakeLists.txt de Windows instalaba librerías desde ../../target/... obligando un flujo de compilación nativa.
+- Eso dispara CMake + MSBuild + INSTALL.vcxproj, y en CI es inestable (MSB3073 / exit code 1).
+
+CORRECCIÓN APLICADA (SOLUCIÓN UI SHELL)
+1) Flutter se convirtió a UI SHELL REAL
+   - flutter/lib/main.dart ahora es una app Material (ventana) con:
+     - Start/Stop del backend externo (portable/backend/mecdis-backend.exe)
+     - Healthcheck por TCP (127.0.0.1:PUERTO configurable, default 21118)
+     - Log en pantalla con eventos y salida del backend.
+
+2) pubspec.yaml minimizado (sin plugins nativos RustDesk)
+   - Antes: dependencias múltiples incluyendo flutter_rust_bridge / plugins que disparan nativo.
+   - Ahora: SOLO Flutter + http + path.
+   - Resultado: "flutter build windows --release" compila Flutter puro.
+
+3) Windows CMake desacoplado del RustDesk lib
+   - flutter/windows/CMakeLists.txt: se eliminó el bloque que instalaba ../../target/.../librustdesk.dll (flutter_rust_bridge).
+   - Resultado: el "install" ya no depende de artefactos Rust/cargo.
+
+CI / GITHUB ACTIONS
+- Workflow: .github/workflows/mecdis-windows.yml
+  - Instala Flutter 3.24.3
+  - flutter pub get
+  - flutter build windows --release -v
+  - Empaqueta dist\ (EXE + portable\) y genera ZIP artefacto
+
+ESTRUCTURA PORTABLE ESPERADA (DIST)
+dist/
+  mecdis-soporte-remoto.exe
+  portable/
+    backend/
+      mecdis-backend.exe
+    (otros recursos)
+
+REGLAS PARA SEGUIR EDITANDO (BLINDAJE)
+- La UI (Flutter) NO debe depender de flutter_rust_bridge ni plugins con C++/Rust/CMake si el objetivo es CI estable.
+- El backend SIEMPRE va como binario externo dentro de portable/backend/.
+- Cualquier diagnóstico debe hacerse:
+  - por proceso (PID vivo) y/o
+  - por puerto local (TCP/HTTP)
+  sin compilar nativos en Flutter.
+- No agregar en windows/CMakeLists.txt installs desde ../../target/ o rutas de cargo.
+- Si se requiere funcionalidad avanzada de RustDesk, se hace en el backend externo, no dentro del build Flutter.
+
+NOTAS
+- La ruta del backend se resuelve por defecto como:
+  <carpeta actual>/portable/backend/mecdis-backend.exe
+  (esto funciona bien cuando se ejecuta el EXE dentro del folder dist).
+
