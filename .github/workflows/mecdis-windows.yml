@@ -21,83 +21,27 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
-
-      - name: Validate CI vcpkg usage (BLINDADO)
+      - name: Setup vcpkg (manifest mode)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-
-          # Opciones comunes de comando vcpkg install: opciones que llevan valor (para no confundir valores con paquetes)
-          $optsWithValue = @(
-            '--triplet','--host-triplet',
-            '--overlay-ports','--overlay-triplets',
-            '--x-install-root','--x-packages-root','--x-buildtrees-root','--x-downloads-root',
-            '--x-manifest-root','--vcpkg-root'
-          )
-
-          $badHits = @()
-
-          Get-ChildItem -Path ".github/workflows" -Filter "*.yml" -File | ForEach-Object {
-            $file = $_.FullName
-            $lines = Get-Content $file
-
-            foreach ($line in $lines) {
-              # Detecta llamadas a vcpkg (vcpkg / vcpkg.exe / & "path\vcpkg.exe") con 'install'
-              if ($line -match '^\s*(?:&\s*)?.*vcpkg(?:\.exe)?\s+install\s+') {
-                $rest = ($line -replace '^\s*(?:&\s*)?.*vcpkg(?:\.exe)?\s+install\s+','').Trim()
-                if ($rest.Length -eq 0) { continue }
-
-                $tokens = $rest -split '\s+'
-                $skipNext = $false
-                $illegal = $null
-
-                foreach ($t in $tokens) {
-                  if ($skipNext) { $skipNext = $false; continue }
-
-                  if ($t.StartsWith('-')) {
-                    if ($optsWithValue -contains $t) { $skipNext = $true }
-                    continue
-                  }
-
-                  # Token sin '-' que NO es valor esperado -> es muy probable que sea paquete (ilegal en manifest mode)
-                  $illegal = $t
-                  break
-                }
-
-                if ($illegal) {
-                  $badHits += [pscustomobject]@{ File=$file; Line=$line.Trim() }
-                }
-              }
-            }
-          }
-
-          if ($badHits.Count -gt 0) {
-            Write-Error "Uso ilegal detectado: 'instalación de vcpkg con nombre de paquete en manifest mode. Usa SOLO: vcpkg install (sin nombres de paquetes)."
-            $badHits | Format-Table -AutoSize | Out-String | Write-Host
-            exit 1
-          } else {
-            Write-Host "OK: No se detectó 'instalación de vcpkg con nombre de paquete en workflows."
-          }
-
-      - name: Setup vcpkg (MANIFEST MODE - BLINDADO)
-        shell: pwsh
-        env:
-          VCPKG_FEATURE_FLAGS: manifests
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $repoRoot = "${{ github.workspace }}"
-          $manifest = Join-Path $repoRoot "vcpkg.json"
-          if (!(Test-Path $manifest)) { throw "vcpkg.json NO existe en la raíz. Este build requiere manifest mode." }
-          $vcpkg = Join-Path $repoRoot "vcpkg"
+          $vcpkg = "${{ github.workspace }}\vcpkg"
           if (!(Test-Path $vcpkg)) {
             git clone https://github.com/microsoft/vcpkg $vcpkg
           }
           & "$vcpkg\bootstrap-vcpkg.bat"
+
+          # Force manifest mode when vcpkg.json exists (NO individual package installs)
+          if (!(Test-Path "${{ github.workspace }}\vcpkg.json")) {
+            throw "vcpkg.json no existe en la raíz del repo. Este proyecto requiere manifest mode."
+          }
+
+          # Install dependencies declared in vcpkg.json
+          & "$vcpkg\vcpkg.exe" install --triplet x64-windows --manifest-root "${{ github.workspace }}" --clean-after-build
+
           "VCPKG_ROOT=$vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
           "VCPKG_DEFAULT_TRIPLET=x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Push-Location $repoRoot
-          & "$vcpkg\vcpkg.exe" install --triplet x64-windows --clean-after-build
-          Pop-Location
+          "VCPKG_FEATURE_FLAGS=manifests" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Build backend (RustDesk core)
         shell: pwsh
