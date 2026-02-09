@@ -27,7 +27,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
 
-          # Opciones comunes de vcpkg install que llevan valor (para no confundir valores con paquetes)
+          # Opciones comunes de comando vcpkg install: opciones que llevan valor (para no confundir valores con paquetes)
           $optsWithValue = @(
             '--triplet','--host-triplet',
             '--overlay-ports','--overlay-triplets',
@@ -72,11 +72,11 @@ jobs:
           }
 
           if ($badHits.Count -gt 0) {
-            Write-Error "Uso ilegal detectado: 'vcpkg install <paquete>' en manifest mode. Usa SOLO: vcpkg install (sin nombres de paquetes)."
+            Write-Error "Uso ilegal detectado: 'instalación de vcpkg con nombre de paquete en manifest mode. Usa SOLO: vcpkg install (sin nombres de paquetes)."
             $badHits | Format-Table -AutoSize | Out-String | Write-Host
             exit 1
           } else {
-            Write-Host "OK: No se detectó 'vcpkg install <paquete>' en workflows."
+            Write-Host "OK: No se detectó 'instalación de vcpkg con nombre de paquete en workflows."
           }
 
       - name: Setup vcpkg (MANIFEST MODE - BLINDADO)
