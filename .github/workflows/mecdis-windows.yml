@@ -2,9 +2,8 @@ name: Windows Build (Artifact)
 
 on:
   push:
-    branches:
-      - main
-      - branding-nivel-seguro
+    branches: [ "main", "branding-nivel-seguro" ]
+  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -12,31 +11,28 @@ jobs:
     runs-on: windows-2022
 
     steps:
-      - name: Checkout
+      - name: Checkout (short path to avoid MSB8066 / CMake exit 1)
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          fetch-depth: 0
+          fetch-depth: 1
+          path: src
 
       # SIN SCRAP (sin compilar RustDesk en CI):
       # Descargamos un backend precompilado oficial de RustDesk y lo renombramos a mecdis-backend.exe
-      - name: Download backend (prebuilt) -> portable\backend\mecdis-backend.exe
+      - name: Download backend (prebuilt) -> src\portable\backend\mecdis-backend.exe
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
 
           $ver = "1.4.5"
           $url = "https://github.com/rustdesk/rustdesk/releases/download/$ver/rustdesk-$ver-x86_64.exe"
-          $dst = Join-Path $env:GITHUB_WORKSPACE "portable\backend\mecdis-backend.exe"
-          $dst2 = Join-Path $env:GITHUB_WORKSPACE "appimage\portable\backend\mecdis-backend.exe"
+          $dst = Join-Path $env:GITHUB_WORKSPACE "src\portable\backend\mecdis-backend.exe"
 
-          New-Item -Force -ItemType Directory (Split-Path $dst)  | Out-Null
-          New-Item -Force -ItemType Directory (Split-Path $dst2) | Out-Null
+          New-Item -Force -ItemType Directory (Split-Path $dst) | Out-Null
 
           Write-Host "Downloading backend: $url"
           Invoke-WebRequest -Uri $url -OutFile $dst
-
-          Copy-Item -Force $dst $dst2
 
           $len = (Get-Item $dst).Length
           if ($len -lt 1000000) { throw "Backend demasiado chico ($len bytes). Descarga incompleta." }
@@ -50,22 +46,24 @@ jobs:
           cache: false
 
       - name: Build Windows UI (Release)
-        working-directory: flutter
+        working-directory: src/flutter
         shell: pwsh
         run: |
           flutter config --enable-windows-desktop
+          flutter clean
           flutter pub get
-          flutter build windows --release -v
+          flutter build windows --release
 
       - name: Prepare dist (UI + portable backend)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+
           Remove-Item -Recurse -Force dist -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path dist | Out-Null
 
-          Copy-Item -Recurse -Force "flutter\build\windows\x64\runner\Release\*" "dist\"
-          Copy-Item -Recurse -Force "portable" "dist\portable"
+          Copy-Item -Recurse -Force "src\flutter\build\windows\x64\runner\Release\*" "dist\"
+          Copy-Item -Recurse -Force "src\portable" "dist\portable"
 
           if (!(Test-Path "dist\portable\backend\mecdis-backend.exe")) {
             throw "No se empaquetó el backend en dist\portable\backend\mecdis-backend.exe"
@@ -75,7 +73,7 @@ jobs:
         shell: pwsh
         run: |
           $run = "${{ github.run_number }}"
-          $zip = "Mec-Dis-Soporte-Remoto-main-$run.zip"
+          $zip = "Mec-Dis-Soporte-Remoto-$run.zip"
           if (Test-Path $zip) { Remove-Item $zip -Force }
           Compress-Archive -Path "dist\*" -DestinationPath $zip -Force
           Write-Host "ZIP listo: $zip"
@@ -83,5 +81,5 @@ jobs:
       - name: Upload artifact (ZIP)
         uses: actions/upload-artifact@v4
         with:
-          name: Mec-Dis-Soporte-Remoto-main-${{ github.run_number }}
-          path: Mec-Dis-Soporte-Remoto-main-${{ github.run_number }}.zip
+          name: Mec-Dis-Soporte-Remoto-${{ github.run_number }}
+          path: Mec-Dis-Soporte-Remoto-${{ github.run_number }}.zip
