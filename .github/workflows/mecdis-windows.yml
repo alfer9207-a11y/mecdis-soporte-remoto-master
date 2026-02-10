@@ -1,4 +1,4 @@
-﻿name: Windows Build (Artifact)
+name: Windows Build (Artifact)
 
 on:
   push:
@@ -10,10 +10,6 @@ jobs:
   build-windows:
     runs-on: windows-2022
 
-    env:
-      VCPKG_TRIPLET: x64-windows-static
-      OPUS_VER: "v1.5.2"
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,178 +17,28 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Install NASM (needed for codec deps on Windows)
-        shell: pwsh
-        run: choco install nasm -y
-
-      - name: Setup vcpkg (manifest mode, static triplet)
+      # SIN SCRAP (sin compilar RustDesk en CI):
+      # Descargamos un backend precompilado oficial de RustDesk y lo renombramos a mecdis-backend.exe
+      - name: Download backend (prebuilt) -> portable\backend\mecdis-backend.exe
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
 
-          if (!(Test-Path "vcpkg.json")) {
-            throw "vcpkg.json no encontrado en la raiz del repo"
-          }
+          $ver = "1.4.5"
+          $url = "https://github.com/rustdesk/rustdesk/releases/download/$ver/rustdesk-$ver-x86_64.exe"
+          $dst = Join-Path $env:GITHUB_WORKSPACE "portable\backend\mecdis-backend.exe"
+          $dst2 = Join-Path $env:GITHUB_WORKSPACE "appimage\portable\backend\mecdis-backend.exe"
 
-          $vcpkg = Join-Path $env:GITHUB_WORKSPACE "vcpkg"
-          if (!(Test-Path $vcpkg)) {
-            git clone --depth 1 https://github.com/microsoft/vcpkg $vcpkg
-          }
-          & "$vcpkg\bootstrap-vcpkg.bat"
+          New-Item -Force -ItemType Directory (Split-Path $dst)  | Out-Null
+          New-Item -Force -ItemType Directory (Split-Path $dst2) | Out-Null
 
-          "VCPKG_ROOT=$vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "VCPKG_DEFAULT_TRIPLET=$env:VCPKG_TRIPLET" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "VCPKG_TARGET_TRIPLET=$env:VCPKG_TRIPLET" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Downloading backend: $url"
+          Invoke-WebRequest -Uri $url -OutFile $dst
 
-          Push-Location $env:GITHUB_WORKSPACE
-          & "$vcpkg\vcpkg.exe" install --triplet $env:VCPKG_TRIPLET
-          Pop-Location
+          Copy-Item -Force $dst $dst2
 
-      - name: BLINDAJE Opus headers (si falta opus_multistream.h)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $vcpkg = Join-Path $env:GITHUB_WORKSPACE "vcpkg"
-          $inc = Join-Path $vcpkg "installed\$env:VCPKG_TRIPLET\include\opus"
-          $need = Join-Path $inc "opus_multistream.h"
-
-          if (!(Test-Path $need)) {
-            Write-Host "opus_multistream.h NO existe en vcpkg include. Aplicando blindaje (descarga headers de Opus $env:OPUS_VER)..."
-            New-Item -Force -ItemType Directory $inc | Out-Null
-
-            $base = "https://raw.githubusercontent.com/xiph/opus/$env:OPUS_VER/include"
-            $files = @(
-              "opus.h",
-              "opus_defines.h",
-              "opus_multistream.h",
-              "opus_types.h",
-              "opus_custom.h",
-              "opus_projection.h",
-              "opus_multistream_surround.h"
-            )
-
-            foreach ($f in $files) {
-              $url = "$base/$f"
-              $dst = Join-Path $inc $f
-              try {
-                Invoke-WebRequest -Uri $url -OutFile $dst -UseBasicParsing
-                Write-Host "OK: $f"
-              } catch {
-                Write-Host "WARN: no se pudo bajar $f ($url). Continuando..."
-              }
-            }
-
-            if (!(Test-Path $need)) {
-              throw "Blindaje fallÃ³: sigue faltando $need"
-            }
-          } else {
-            Write-Host "OK: opus_multistream.h ya existe."
-          }
-
-      - name: BLINDAJE libvpx headers (si faltan headers vpx/*.h)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $vpxInclude = "$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows-static\include\vpx"
-          New-Item -ItemType Directory -Force -Path $vpxInclude | Out-Null
-
-          $need = @("vp8.h","vpx_encoder.h","vpx_ext_ratectrl.h","vpx_codec.h")
-          $missing = $need | Where-Object { -not (Test-Path (Join-Path $vpxInclude $_)) }
-
-          if ($missing.Count -gt 0) {
-            Write-Host "Missing libvpx headers: $($missing -join ', ')"
-            $tmp = "$env:RUNNER_TEMP\libvpx"
-            Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
-            New-Item -ItemType Directory -Force -Path $tmp | Out-Null
-
-            $zip = "$tmp\libvpx.zip"
-            Invoke-WebRequest -Uri "https://github.com/webmproject/libvpx/archive/refs/tags/v1.13.1.zip" -OutFile $zip
-            Expand-Archive -Path $zip -DestinationPath $tmp -Force
-
-            $srcDir = Get-ChildItem $tmp -Directory | Where-Object { $_.Name -like "libvpx-*" } | Select-Object -First 1
-            if (-not $srcDir) { throw "libvpx source folder not found after unzip" }
-
-            Copy-Item "$($srcDir.FullName)\vpx\*.h" $vpxInclude -Force
-            Write-Host "Patched libvpx headers into: $vpxInclude"
-          } else {
-            Write-Host "libvpx headers OK"
-          }
-
-      - name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Validate/patch aom headers (FULL)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $aomInclude = "$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows-static\include\aom"
-          New-Item -ItemType Directory -Force -Path $aomInclude | Out-Null
-
-          if (-not (Test-Path (Join-Path $aomInclude "aom.h"))) {
-            Write-Host "Missing aom headers; downloading upstream headers..."
-            $tmp = "$env:RUNNER_TEMP\aom"
-            Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
-            New-Item -ItemType Directory -Force -Path $tmp | Out-Null
-
-            $zip = "$tmp\aom.zip"
-      # --- BLINDAJE AOM (anti-404): intenta varias URLs estables ---
-      [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-      $urls = @(
-        "https://codeload.github.com/AOMediaCodec/aom/zip/refs/heads/main",
-        "https://github.com/AOMediaCodec/aom/archive/refs/heads/main.zip",
-        "https://codeload.github.com/AOMediaCodec/aom/zip/refs/tags/v3.9.1",
-        "https://github.com/AOMediaCodec/aom/archive/refs/tags/v3.9.1.zip"
-      )
-      $ok = $false
-      foreach ($u in $urls) {
-        try {
-          Write-Host "Trying: $u"
-          Invoke-WebRequest -Uri $u -OutFile $zip
-          $ok = $true
-          break
-        } catch {
-          Write-Host "Download failed: $u"
-        }
-      }
-      if (-not $ok) { throw "Failed to download AOM headers from all fallback URLs" }
-            Expand-Archive -Path $zip -DestinationPath $tmp -Force
-
-            $srcDir = Get-ChildItem $tmp -Directory | Where-Object { $_.Name -like "aom-*" } | Select-Object -First 1
-            if (-not $srcDir) { throw "aom source folder not found after unzip" }
-
-            Copy-Item "$($srcDir.FullName)\aom\*.h" $aomInclude -Force
-            Write-Host "Patched aom headers into: $aomInclude"
-          } else {
-            Write-Host "aom headers OK"
-          }
-
-      - name: Build backend (Rust) -> portable\backend\mecdis-backend.exe
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $env:VCPKG_DEFAULT_TRIPLET = $env:VCPKG_TRIPLET
-          $env:VCPKG_TARGET_TRIPLET  = $env:VCPKG_TRIPLET
-
-          cargo build --release --features flutter
-
-          $src = Join-Path $env:GITHUB_WORKSPACE "target\release\rustdesk.exe"
-          if (!(Test-Path $src)) {
-            $candidates = Get-ChildItem -Path (Join-Path $env:GITHUB_WORKSPACE "target\release") -Filter "*.exe" -ErrorAction SilentlyContinue
-            if ($candidates.Count -eq 0) { throw "No EXE produced in target\release" }
-            $src = $candidates[0].FullName
-          }
-
-          New-Item -Force -ItemType Directory (Join-Path $env:GITHUB_WORKSPACE "portable\backend") | Out-Null
-          New-Item -Force -ItemType Directory (Join-Path $env:GITHUB_WORKSPACE "appimage\portable\backend") | Out-Null
-
-          Copy-Item -Force $src (Join-Path $env:GITHUB_WORKSPACE "portable\backend\mecdis-backend.exe")
-          Copy-Item -Force $src (Join-Path $env:GITHUB_WORKSPACE "appimage\portable\backend\mecdis-backend.exe")
-
-          $len = (Get-Item (Join-Path $env:GITHUB_WORKSPACE "portable\backend\mecdis-backend.exe")).Length
-          if ($len -lt 1000000) { throw "Backend demasiado chico ($len bytes). Sigue siendo placeholder." }
+          $len = (Get-Item $dst).Length
+          if ($len -lt 1000000) { throw "Backend demasiado chico ($len bytes). Descarga incompleta." }
           Write-Host "Backend OK, size: $len bytes"
 
       - name: Install Flutter (stable)
@@ -221,7 +67,7 @@ jobs:
           Copy-Item -Recurse -Force "portable" "dist\portable"
 
           if (!(Test-Path "dist\portable\backend\mecdis-backend.exe")) {
-            throw "No se empaquetÃ³ el backend en dist\portable\backend\mecdis-backend.exe"
+            throw "No se empaquetó el backend en dist\portable\backend\mecdis-backend.exe"
           }
 
       - name: Create final ZIP
@@ -238,6 +84,3 @@ jobs:
         with:
           name: Mec-Dis-Soporte-Remoto-main-${{ github.run_number }}
           path: Mec-Dis-Soporte-Remoto-main-${{ github.run_number }}.zip
-
-
-# trigger 2026-02-09T21:53:25
