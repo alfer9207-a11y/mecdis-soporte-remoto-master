@@ -12,6 +12,7 @@ jobs:
 
     env:
       VCPKG_TRIPLET: x64-windows-static
+      OPUS_VER: "v1.5.2"
 
     steps:
       - name: Checkout
@@ -20,10 +21,9 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Install NASM (needed for some codec deps on Windows)
+      - name: Install NASM (needed for codec deps on Windows)
         shell: pwsh
-        run: |
-          choco install nasm -y
+        run: choco install nasm -y
 
       - name: Setup vcpkg (manifest mode, static triplet)
         shell: pwsh
@@ -31,8 +31,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
 
           if (!(Test-Path "vcpkg.json")) {
-            Write-Error "vcpkg.json no encontrado en la raiz del repo"
-            exit 1
+            throw "vcpkg.json no encontrado en la raiz del repo"
           }
 
           $vcpkg = Join-Path $env:GITHUB_WORKSPACE "vcpkg"
@@ -46,9 +45,49 @@ jobs:
           "VCPKG_TARGET_TRIPLET=$env:VCPKG_TRIPLET" | Out-File -FilePath $env:GITHUB_ENV -Append
 
           Push-Location $env:GITHUB_WORKSPACE
-          # Manifest install for the SAME triplet that Rust build expects (x64-windows-static)
           & "$vcpkg\vcpkg.exe" install --triplet $env:VCPKG_TRIPLET
           Pop-Location
+
+      - name: BLINDAJE Opus headers (si falta opus_multistream.h)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vcpkg = Join-Path $env:GITHUB_WORKSPACE "vcpkg"
+          $inc = Join-Path $vcpkg "installed\$env:VCPKG_TRIPLET\include\opus"
+          $need = Join-Path $inc "opus_multistream.h"
+
+          if (!(Test-Path $need)) {
+            Write-Host "opus_multistream.h NO existe en vcpkg include. Aplicando blindaje (descarga headers de Opus $env:OPUS_VER)..."
+            New-Item -Force -ItemType Directory $inc | Out-Null
+
+            $base = "https://raw.githubusercontent.com/xiph/opus/$env:OPUS_VER/include"
+            $files = @(
+              "opus.h",
+              "opus_defines.h",
+              "opus_multistream.h",
+              "opus_types.h",
+              "opus_custom.h",
+              "opus_projection.h",
+              "opus_multistream_surround.h"
+            )
+
+            foreach ($f in $files) {
+              $url = "$base/$f"
+              $dst = Join-Path $inc $f
+              try {
+                Invoke-WebRequest -Uri $url -OutFile $dst -UseBasicParsing
+                Write-Host "OK: $f"
+              } catch {
+                Write-Host "WARN: no se pudo bajar $f ($url). Continuando..."
+              }
+            }
+
+            if (!(Test-Path $need)) {
+              throw "Blindaje falló: sigue faltando $need"
+            }
+          } else {
+            Write-Host "OK: opus_multistream.h ya existe."
+          }
 
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -60,8 +99,6 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-
-          # Ensure cargo sees the same vcpkg triplet
           $env:VCPKG_DEFAULT_TRIPLET = $env:VCPKG_TRIPLET
           $env:VCPKG_TARGET_TRIPLET  = $env:VCPKG_TRIPLET
 
@@ -91,42 +128,23 @@ jobs:
           channel: 'stable'
           cache: false
 
-      - name: Verify Flutter/Dart + enable windows
-        shell: pwsh
-        run: |
-          flutter --version
-          dart --version
-          flutter config --enable-windows-desktop
-
-      - name: Pub get
-        working-directory: flutter
-        shell: pwsh
-        run: |
-          flutter pub get
-
       - name: Build Windows UI (Release)
         working-directory: flutter
         shell: pwsh
-        env:
-          CMAKE_BUILD_PARALLEL_LEVEL: "2"
         run: |
+          flutter config --enable-windows-desktop
+          flutter pub get
           flutter build windows --release -v
 
       - name: Prepare dist (UI + portable backend)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-
           Remove-Item -Recurse -Force dist -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path dist | Out-Null
 
           Copy-Item -Recurse -Force "flutter\build\windows\x64\runner\Release\*" "dist\"
-
-          if (Test-Path "portable") {
-            Copy-Item -Recurse -Force "portable" "dist\portable"
-          } else {
-            throw "Carpeta 'portable' no existe en la raiz"
-          }
+          Copy-Item -Recurse -Force "portable" "dist\portable"
 
           if (!(Test-Path "dist\portable\backend\mecdis-backend.exe")) {
             throw "No se empaquetó el backend en dist\portable\backend\mecdis-backend.exe"
