@@ -10,6 +10,9 @@ jobs:
   build-windows:
     runs-on: windows-2022
 
+    env:
+      VCPKG_TRIPLET: x64-windows-static
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,7 +25,7 @@ jobs:
         run: |
           choco install nasm -y
 
-      - name: Setup vcpkg (manifest mode)
+      - name: Setup vcpkg (manifest mode, static triplet)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -39,10 +42,12 @@ jobs:
           & "$vcpkg\bootstrap-vcpkg.bat"
 
           "VCPKG_ROOT=$vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "VCPKG_DEFAULT_TRIPLET=x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "VCPKG_DEFAULT_TRIPLET=$env:VCPKG_TRIPLET" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "VCPKG_TARGET_TRIPLET=$env:VCPKG_TRIPLET" | Out-File -FilePath $env:GITHUB_ENV -Append
 
           Push-Location $env:GITHUB_WORKSPACE
-          & "$vcpkg\vcpkg.exe" install --triplet x64-windows
+          # Manifest install for the SAME triplet that Rust build expects (x64-windows-static)
+          & "$vcpkg\vcpkg.exe" install --triplet $env:VCPKG_TRIPLET
           Pop-Location
 
       - name: Install Rust (stable)
@@ -56,12 +61,14 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
 
-          # Build rustdesk backend. The repo uses the "flutter" feature for this fork.
+          # Ensure cargo sees the same vcpkg triplet
+          $env:VCPKG_DEFAULT_TRIPLET = $env:VCPKG_TRIPLET
+          $env:VCPKG_TARGET_TRIPLET  = $env:VCPKG_TRIPLET
+
           cargo build --release --features flutter
 
           $src = Join-Path $env:GITHUB_WORKSPACE "target\release\rustdesk.exe"
           if (!(Test-Path $src)) {
-            # fallback: sometimes binary name differs, try any exe in target\release
             $candidates = Get-ChildItem -Path (Join-Path $env:GITHUB_WORKSPACE "target\release") -Filter "*.exe" -ErrorAction SilentlyContinue
             if ($candidates.Count -eq 0) { throw "No EXE produced in target\release" }
             $src = $candidates[0].FullName
