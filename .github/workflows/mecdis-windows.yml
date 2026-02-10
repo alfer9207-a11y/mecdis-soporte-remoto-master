@@ -1,4 +1,4 @@
-﻿name: Windows Build (Artifact)
+name: Windows Build (Artifact)
 
 on:
   push:
@@ -83,7 +83,7 @@ jobs:
             }
 
             if (!(Test-Path $need)) {
-              throw "Blindaje fallÃ³: sigue faltando $need"
+              throw "Blindaje falló: sigue faltando $need"
             }
           } else {
             Write-Host "OK: opus_multistream.h ya existe."
@@ -138,7 +138,7 @@ jobs:
             New-Item -ItemType Directory -Force -Path $tmp | Out-Null
 
             $zip = "$tmp\aom.zip"
-            Invoke-WebRequest -Uri "https://github.com/Alliance-for-Open-Media/aom/archive/refs/tags/v3.9.1.zip" -OutFile $zip
+            Invoke-WebRequest -Uri "https://github.com/AOMediaCodec/aom/archive/refs/heads/main.zip" -OutFile $zip
             Expand-Archive -Path $zip -DestinationPath $tmp -Force
 
             $srcDir = Get-ChildItem $tmp -Directory | Where-Object { $_.Name -like "aom-*" } | Select-Object -First 1
@@ -157,33 +157,6 @@ jobs:
           $env:VCPKG_DEFAULT_TRIPLET = $env:VCPKG_TRIPLET
           $env:VCPKG_TARGET_TRIPLET  = $env:VCPKG_TRIPLET
 
-      - name: Validate/patch libvpx headers (FULL)
-        shell: pwsh
-        run: |
-          $vpxInclude = "$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows-static\include\vpx"
-          New-Item -ItemType Directory -Force -Path $vpxInclude | Out-Null
-
-          $need = @("vp8.h","vpx_encoder.h","vpx_ext_ratectrl.h","vpx_codec.h")
-          $missing = $need | Where-Object { -not (Test-Path (Join-Path $vpxInclude $_)) }
-
-          if ($missing.Count -gt 0) {
-            Write-Host "Missing libvpx headers: $($missing -join ', ')"
-            $tmp = "$env:RUNNER_TEMP\libvpx"
-            Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
-            New-Item -ItemType Directory -Force -Path $tmp | Out-Null
-
-            $zip = "$tmp\libvpx.zip"
-            Invoke-WebRequest -Uri "https://github.com/webmproject/libvpx/archive/refs/tags/v1.13.1.zip" -OutFile $zip
-            Expand-Archive -Path $zip -DestinationPath $tmp -Force
-
-            $srcDir = Get-ChildItem $tmp -Directory | Where-Object { $_.Name -like "libvpx-*" } | Select-Object -First 1
-            if (-not $srcDir) { throw "libvpx source folder not found after unzip" }
-
-            Copy-Item "$($srcDir.FullName)\vpx\*.h" $vpxInclude -Force
-            Write-Host "Patched libvpx headers into: $vpxInclude"
-          } else {
-            Write-Host "libvpx headers OK"
-          }
           cargo build --release --features flutter
 
           $src = Join-Path $env:GITHUB_WORKSPACE "target\release\rustdesk.exe"
@@ -229,7 +202,7 @@ jobs:
           Copy-Item -Recurse -Force "portable" "dist\portable"
 
           if (!(Test-Path "dist\portable\backend\mecdis-backend.exe")) {
-            throw "No se empaquetÃ³ el backend en dist\portable\backend\mecdis-backend.exe"
+            throw "No se empaquetó el backend en dist\portable\backend\mecdis-backend.exe"
           }
 
       - name: Create final ZIP
@@ -246,4 +219,3 @@ jobs:
         with:
           name: Mec-Dis-Soporte-Remoto-main-${{ github.run_number }}
           path: Mec-Dis-Soporte-Remoto-main-${{ github.run_number }}.zip
-
