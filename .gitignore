@@ -58,3 +58,11 @@ flutter/web/
 # --- FRB generated bindings (must be committed for CI) ---
 !src/bridge_generated.rs
 !src/bridge_generated.io.rs
+
+# Flutter generated
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+build/
+

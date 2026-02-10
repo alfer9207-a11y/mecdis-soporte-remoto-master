@@ -15,4 +15,3 @@ Instalar **SOLO** `opus` usando *classic mode*:
 Reemplaza tu archivo:
 `.github/workflows/mecdis-windows.yml`
 por el incluido aquí (o copia el step marcado).
-trigger ci
