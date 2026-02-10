@@ -89,34 +89,34 @@ jobs:
             Write-Host "OK: opus_multistream.h ya existe."
           }
 
-- name: BLINDAJE libvpx headers (si faltan headers vpx/*.h)
-  shell: pwsh
-  run: |
-    $ErrorActionPreference = "Stop"
-    $vpxInclude = "$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows-static\include\vpx"
-    New-Item -ItemType Directory -Force -Path $vpxInclude | Out-Null
+      - name: BLINDAJE libvpx headers (si faltan headers vpx/*.h)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vpxInclude = "$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows-static\include\vpx"
+          New-Item -ItemType Directory -Force -Path $vpxInclude | Out-Null
 
-    $need = @("vp8.h","vpx_encoder.h","vpx_ext_ratectrl.h","vpx_codec.h")
-    $missing = $need | Where-Object { -not (Test-Path (Join-Path $vpxInclude $_)) }
+          $need = @("vp8.h","vpx_encoder.h","vpx_ext_ratectrl.h","vpx_codec.h")
+          $missing = $need | Where-Object { -not (Test-Path (Join-Path $vpxInclude $_)) }
 
-    if ($missing.Count -gt 0) {
-      Write-Host "Missing libvpx headers: $($missing -join ', ')"
-      $tmp = "$env:RUNNER_TEMP\libvpx"
-      Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
-      New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+          if ($missing.Count -gt 0) {
+            Write-Host "Missing libvpx headers: $($missing -join ', ')"
+            $tmp = "$env:RUNNER_TEMP\libvpx"
+            Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Force -Path $tmp | Out-Null
 
-      $zip = "$tmp\libvpx.zip"
-      Invoke-WebRequest -Uri "https://github.com/webmproject/libvpx/archive/refs/tags/v1.13.1.zip" -OutFile $zip
-      Expand-Archive -Path $zip -DestinationPath $tmp -Force
+            $zip = "$tmp\libvpx.zip"
+            Invoke-WebRequest -Uri "https://github.com/webmproject/libvpx/archive/refs/tags/v1.13.1.zip" -OutFile $zip
+            Expand-Archive -Path $zip -DestinationPath $tmp -Force
 
-      $srcDir = Get-ChildItem $tmp -Directory | Where-Object { $_.Name -like "libvpx-*" } | Select-Object -First 1
-      if (-not $srcDir) { throw "libvpx source folder not found after unzip" }
+            $srcDir = Get-ChildItem $tmp -Directory | Where-Object { $_.Name -like "libvpx-*" } | Select-Object -First 1
+            if (-not $srcDir) { throw "libvpx source folder not found after unzip" }
 
-      Copy-Item "$($srcDir.FullName)\vpx\*.h" $vpxInclude -Force
-      Write-Host "Patched libvpx headers into: $vpxInclude"
-    } else {
-      Write-Host "libvpx headers OK"
-    }
+            Copy-Item "$($srcDir.FullName)\vpx\*.h" $vpxInclude -Force
+            Write-Host "Patched libvpx headers into: $vpxInclude"
+          } else {
+            Write-Host "libvpx headers OK"
+          }
 
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -131,6 +131,33 @@ jobs:
           $env:VCPKG_DEFAULT_TRIPLET = $env:VCPKG_TRIPLET
           $env:VCPKG_TARGET_TRIPLET  = $env:VCPKG_TRIPLET
 
+      - name: Validate/patch libvpx headers (FULL)
+        shell: pwsh
+        run: |
+          $vpxInclude = "$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows-static\include\vpx"
+          New-Item -ItemType Directory -Force -Path $vpxInclude | Out-Null
+
+          $need = @("vp8.h","vpx_encoder.h","vpx_ext_ratectrl.h","vpx_codec.h")
+          $missing = $need | Where-Object { -not (Test-Path (Join-Path $vpxInclude $_)) }
+
+          if ($missing.Count -gt 0) {
+            Write-Host "Missing libvpx headers: $($missing -join ', ')"
+            $tmp = "$env:RUNNER_TEMP\libvpx"
+            Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+
+            $zip = "$tmp\libvpx.zip"
+            Invoke-WebRequest -Uri "https://github.com/webmproject/libvpx/archive/refs/tags/v1.13.1.zip" -OutFile $zip
+            Expand-Archive -Path $zip -DestinationPath $tmp -Force
+
+            $srcDir = Get-ChildItem $tmp -Directory | Where-Object { $_.Name -like "libvpx-*" } | Select-Object -First 1
+            if (-not $srcDir) { throw "libvpx source folder not found after unzip" }
+
+            Copy-Item "$($srcDir.FullName)\vpx\*.h" $vpxInclude -Force
+            Write-Host "Patched libvpx headers into: $vpxInclude"
+          } else {
+            Write-Host "libvpx headers OK"
+          }
           cargo build --release --features flutter
 
           $src = Join-Path $env:GITHUB_WORKSPACE "target\release\rustdesk.exe"
