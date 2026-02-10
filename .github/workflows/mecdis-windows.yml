@@ -1,4 +1,4 @@
-name: Windows Build (Artifact)
+﻿name: Windows Build (Artifact)
 
 on:
   push:
@@ -13,7 +13,6 @@ jobs:
     env:
       VCPKG_TRIPLET: x64-windows-static
       OPUS_VER: "v1.5.2"
-      VPX_VER: "v1.14.1"
 
     steps:
       - name: Checkout
@@ -84,55 +83,40 @@ jobs:
             }
 
             if (!(Test-Path $need)) {
-              throw "Blindaje falló: sigue faltando $need"
+              throw "Blindaje fallÃ³: sigue faltando $need"
             }
           } else {
             Write-Host "OK: opus_multistream.h ya existe."
           }
 
+- name: BLINDAJE libvpx headers (si faltan headers vpx/*.h)
+  shell: pwsh
+  run: |
+    $ErrorActionPreference = "Stop"
+    $vpxInclude = "$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows-static\include\vpx"
+    New-Item -ItemType Directory -Force -Path $vpxInclude | Out-Null
 
-      - name: BLINDAJE VPX headers (si falta vpx\vp8.h)
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $vcpkg = Join-Path $env:GITHUB_WORKSPACE "vcpkg"
-          $inc = Join-Path $vcpkg "installed\$env:VCPKG_TRIPLET\include\vpx"
-          $need = Join-Path $inc "vp8.h"
+    $need = @("vp8.h","vpx_encoder.h","vpx_ext_ratectrl.h","vpx_codec.h")
+    $missing = $need | Where-Object { -not (Test-Path (Join-Path $vpxInclude $_)) }
 
-          if (!(Test-Path $need)) {
-            Write-Host "vp8.h NO existe en vcpkg include. Intentando blindaje (descarga headers de libvpx $env:VPX_VER)..."
-            New-Item -Force -ItemType Directory $inc | Out-Null
+    if ($missing.Count -gt 0) {
+      Write-Host "Missing libvpx headers: $($missing -join ', ')"
+      $tmp = "$env:RUNNER_TEMP\libvpx"
+      Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+      New-Item -ItemType Directory -Force -Path $tmp | Out-Null
 
-            $base = "https://raw.githubusercontent.com/webmproject/libvpx/$env:VPX_VER/vpx"
-            $files = @(
-              "vp8.h",
-              "vp8cx.h",
-              "vp8dx.h",
-              "vpx_codec.h",
-              "vpx_decoder.h",
-              "vpx_encoder.h",
-              "vpx_frame_buffer.h",
-              "vpx_image.h",
-              "vpx_integer.h"
-            )
+      $zip = "$tmp\libvpx.zip"
+      Invoke-WebRequest -Uri "https://github.com/webmproject/libvpx/archive/refs/tags/v1.13.1.zip" -OutFile $zip
+      Expand-Archive -Path $zip -DestinationPath $tmp -Force
 
-            foreach ($f in $files) {
-              $url = "$base/$f"
-              $dst = Join-Path $inc $f
-              try {
-                Invoke-WebRequest -Uri $url -OutFile $dst -UseBasicParsing
-                Write-Host "OK: $f"
-              } catch {
-                Write-Host "WARN: no se pudo bajar $f ($url). Continuando..."
-              }
-            }
+      $srcDir = Get-ChildItem $tmp -Directory | Where-Object { $_.Name -like "libvpx-*" } | Select-Object -First 1
+      if (-not $srcDir) { throw "libvpx source folder not found after unzip" }
 
-            if (!(Test-Path $need)) {
-              throw "Blindaje falló: sigue faltando $need"
-            }
-          } else {
-            Write-Host "OK: vp8.h ya existe."
-          }
+      Copy-Item "$($srcDir.FullName)\vpx\*.h" $vpxInclude -Force
+      Write-Host "Patched libvpx headers into: $vpxInclude"
+    } else {
+      Write-Host "libvpx headers OK"
+    }
 
       - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -192,7 +176,7 @@ jobs:
           Copy-Item -Recurse -Force "portable" "dist\portable"
 
           if (!(Test-Path "dist\portable\backend\mecdis-backend.exe")) {
-            throw "No se empaquetó el backend en dist\portable\backend\mecdis-backend.exe"
+            throw "No se empaquetÃ³ el backend en dist\portable\backend\mecdis-backend.exe"
           }
 
       - name: Create final ZIP
@@ -209,3 +193,4 @@ jobs:
         with:
           name: Mec-Dis-Soporte-Remoto-main-${{ github.run_number }}
           path: Mec-Dis-Soporte-Remoto-main-${{ github.run_number }}.zip
+
