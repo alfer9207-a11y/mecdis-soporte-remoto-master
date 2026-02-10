@@ -2,8 +2,9 @@ name: Windows Build (Artifact)
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
+    branches:
+      - main
+      - branding-nivel-seguro
   workflow_dispatch:
 
 jobs:
