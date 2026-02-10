@@ -1,4 +1,4 @@
-name: Windows Build (Artifact)
+﻿name: Windows Build (Artifact)
 
 on:
   push:
@@ -83,7 +83,7 @@ jobs:
             }
 
             if (!(Test-Path $need)) {
-              throw "Blindaje falló: sigue faltando $need"
+              throw "Blindaje fallÃ³: sigue faltando $need"
             }
           } else {
             Write-Host "OK: opus_multistream.h ya existe."
@@ -138,7 +138,26 @@ jobs:
             New-Item -ItemType Directory -Force -Path $tmp | Out-Null
 
             $zip = "$tmp\aom.zip"
-            Invoke-WebRequest -Uri "https://github.com/AOMediaCodec/aom/archive/refs/heads/main.zip" -OutFile $zip
+      # --- BLINDAJE AOM (anti-404): intenta varias URLs estables ---
+      [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+      $urls = @(
+        "https://codeload.github.com/AOMediaCodec/aom/zip/refs/heads/main",
+        "https://github.com/AOMediaCodec/aom/archive/refs/heads/main.zip",
+        "https://codeload.github.com/AOMediaCodec/aom/zip/refs/tags/v3.9.1",
+        "https://github.com/AOMediaCodec/aom/archive/refs/tags/v3.9.1.zip"
+      )
+      $ok = $false
+      foreach ($u in $urls) {
+        try {
+          Write-Host "Trying: $u"
+          Invoke-WebRequest -Uri $u -OutFile $zip
+          $ok = $true
+          break
+        } catch {
+          Write-Host "Download failed: $u"
+        }
+      }
+      if (-not $ok) { throw "Failed to download AOM headers from all fallback URLs" }
             Expand-Archive -Path $zip -DestinationPath $tmp -Force
 
             $srcDir = Get-ChildItem $tmp -Directory | Where-Object { $_.Name -like "aom-*" } | Select-Object -First 1
@@ -202,7 +221,7 @@ jobs:
           Copy-Item -Recurse -Force "portable" "dist\portable"
 
           if (!(Test-Path "dist\portable\backend\mecdis-backend.exe")) {
-            throw "No se empaquetó el backend en dist\portable\backend\mecdis-backend.exe"
+            throw "No se empaquetÃ³ el backend en dist\portable\backend\mecdis-backend.exe"
           }
 
       - name: Create final ZIP
@@ -219,3 +238,4 @@ jobs:
         with:
           name: Mec-Dis-Soporte-Remoto-main-${{ github.run_number }}
           path: Mec-Dis-Soporte-Remoto-main-${{ github.run_number }}.zip
+
