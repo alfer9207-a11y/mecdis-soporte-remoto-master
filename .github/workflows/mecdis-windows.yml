@@ -124,6 +124,32 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Validate/patch aom headers (FULL)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $aomInclude = "$env:GITHUB_WORKSPACE\vcpkg\installed\x64-windows-static\include\aom"
+          New-Item -ItemType Directory -Force -Path $aomInclude | Out-Null
+
+          if (-not (Test-Path (Join-Path $aomInclude "aom.h"))) {
+            Write-Host "Missing aom headers; downloading upstream headers..."
+            $tmp = "$env:RUNNER_TEMP\aom"
+            Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+
+            $zip = "$tmp\aom.zip"
+            Invoke-WebRequest -Uri "https://github.com/Alliance-for-Open-Media/aom/archive/refs/tags/v3.9.1.zip" -OutFile $zip
+            Expand-Archive -Path $zip -DestinationPath $tmp -Force
+
+            $srcDir = Get-ChildItem $tmp -Directory | Where-Object { $_.Name -like "aom-*" } | Select-Object -First 1
+            if (-not $srcDir) { throw "aom source folder not found after unzip" }
+
+            Copy-Item "$($srcDir.FullName)\aom\*.h" $aomInclude -Force
+            Write-Host "Patched aom headers into: $aomInclude"
+          } else {
+            Write-Host "aom headers OK"
+          }
+
       - name: Build backend (Rust) -> portable\backend\mecdis-backend.exe
         shell: pwsh
         run: |

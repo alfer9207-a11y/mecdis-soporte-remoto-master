@@ -1,8 +1,9 @@
 {
   "name": "mecdis-soporte-remoto",
-  "version-string": "1.0.0",
+  "version-string": "0.0.0",
   "dependencies": [
     "opus",
-    "libvpx"
+    "libvpx",
+    "aom"
   ]
 }
